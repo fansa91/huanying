@@ -28,11 +28,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # 依赖运行时版：体积小，需要目标机安装 .NET 与 Windows App SDK 运行时
+          # 依赖运行时版：WinUI / Windows App SDK 自带，只需目标机装 .NET 10 Desktop Runtime
           - flavor: framework-dependent
             self_contained: "false"
-            wasdk_self_contained: "false"
-          # 免安装版：把 .NET 与 Windows App SDK 一起打进来，解压即用
+            wasdk_self_contained: "true"
+          # 免安装版：.NET 与 Windows App SDK 全部打进包内，解压即用
           - flavor: self-contained
             self_contained: "true"
             wasdk_self_contained: "true"
@@ -98,7 +98,6 @@ jobs:
           Write-Host "文件数：$((Get-ChildItem $dir -Recurse -File).Count)"
 
       - name: Slim
-        if: matrix.flavor == 'self-contained'
         shell: pwsh
         run: |
           $dir = "publish/${{ matrix.flavor }}"
@@ -182,10 +181,11 @@ jobs:
 
           | 包 | 说明 | 需要安装 |
           | --- | --- | --- |
-          | `*-self-contained.zip` | 免安装版，运行时全部打包在内 | 无需安装，解压即用 |
-          | `*-framework-dependent.zip` | 依赖运行时版，体积更小 | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) + [Windows App SDK 1.8 Runtime](https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads) |
+          | `*-self-contained.zip` | 免安装版，.NET 与 WinUI 运行时全部打包在内 | 无需安装，解压即用 |
+          | `*-framework-dependent.zip` | 依赖运行时版，体积更小 | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) |
 
-          两个包都是 **Windows x64**、免安装（非 MSIX）直接运行 `Huanying.exe`。
+          两个包都自带 Windows App SDK（`WindowsAppSDKSelfContained=true`），**不需要**再单独装 Windows App SDK Runtime。
+          都是 **Windows x64**、免安装（非 MSIX）直接运行 `Huanying.exe`。
 
           ### 首次运行
 

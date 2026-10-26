@@ -17,8 +17,9 @@
       SelfContained                .NET 运行时是否打进输出目录
       WindowsAppSDKSelfContained   WinUI / Windows App SDK 运行时是否打进输出目录
 
-      Release 的两个变体由 CI 通过命令行覆盖：
-        依赖运行时版：-p:SelfContained=false -p:WindowsAppSDKSelfContained=false
+      Release 的两个变体由 CI 通过命令行覆盖，两者都自带 Windows App SDK，
+      所以都不需要目标机预装 Windows App SDK Runtime：
+        依赖运行时版：-p:SelfContained=false -p:WindowsAppSDKSelfContained=true
         免安装版    ：-p:SelfContained=true  -p:WindowsAppSDKSelfContained=true
     -->
     <SelfContained Condition="'$(SelfContained)' == ''">false</SelfContained>
@@ -34,7 +35,7 @@
     <Description>Huanying — 一个 WinUI 3 的桌面影片浏览与播放客户端</Description>
     <Company>Huanying</Company>
     <Copyright>Copyright © 2026 Huanying</Copyright>
-    <Version>1.0.0</Version>
+    <Version>0.1.0</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 

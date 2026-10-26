@@ -49,13 +49,15 @@
 
 ## 下载与安装
 
-到 [Releases](../../releases/latest) 页下载，两个包内容一致，区别只在运行时是否自带：
+到 [Releases](../../releases/latest) 页下载，两个包都**自带 Windows App SDK**（`WindowsAppSDKSelfContained=true`），
+区别只在 .NET 运行时是否打进去：
 
 | 包 | 下载 | 解压后 | 需要安装 |
 | --- | --- | --- | --- |
-| `Huanying-<版本>-win-x64-self-contained.zip` | ~71 MB | ~186 MB | 无需安装，**解压即用** |
-| `Huanying-<版本>-win-x64-framework-dependent.zip` | ~15 MB | ~50 MB | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) + [Windows App SDK 1.8 Runtime](https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads) |
+| `Huanying-<版本>-win-x64-self-contained.zip` | ~SIZE_SC | ~SIZE_SC_RAW | 无需安装，**解压即用** |
+| `Huanying-<版本>-win-x64-framework-dependent.zip` | ~SIZE_FD | ~SIZE_FD_RAW | 只需 [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) |
 
+两者都**不需要**额外安装 Windows App SDK 1.8 Runtime —— WinUI 的运行时组件已经在包里了。
 解压后直接运行 `Huanying.exe`。这不是 MSIX 安装包，不写注册表，删掉文件夹即卸载。
 
 **系统要求**：Windows 10 19041（2004）及以上 / Windows 11，x64。
@@ -92,19 +94,19 @@ https://你的域名/api.php/provide/vod
 dotnet build Huanying.csproj
 dotnet run --project Huanying.csproj
 
-# 免安装版（自带 .NET 与 Windows App SDK）
+# 免安装版（自带 .NET 运行时；Windows App SDK 两个版本都自带）
 dotnet publish Huanying.csproj -c Release -r win-x64 \
   --self-contained true -p:WindowsAppSDKSelfContained=true -o publish/self-contained
 
-# 依赖运行时版
+# 依赖 .NET 运行时版（仍需目标机装 .NET 10 Desktop Runtime，但不装 Windows App SDK Runtime）
 dotnet publish Huanying.csproj -c Release -r win-x64 \
-  --self-contained false -p:WindowsAppSDKSelfContained=false -o publish/framework-dependent
+  --self-contained false -p:WindowsAppSDKSelfContained=true -o publish/framework-dependent
 ```
 
-推一个 tag（如 `v1.0.0`）上去，[`.github/workflows/release.yml`](.github/workflows/release.yml)
+推一个 tag（如 `v0.1.0`）上去，[`.github/workflows/release.yml`](.github/workflows/release.yml)
 会自动编译上面两个变体、各打一个 `Huanying-<版本>-win-x64-<flavor>.zip`，并创建 Release。
 
-免安装版打包前会做一次精简：删掉本应用用不到的 Windows AI / ONNX 运行时（`onnxruntime.dll`、`DirectML.dll`
+两个包打包前都会做一次精简：删掉本应用用不到的 Windows AI / ONNX 运行时（`onnxruntime.dll`、`DirectML.dll`
 等，约 39 MB），语言资源只保留 `en-us` / `en-GB` / `zh-CN` / `zh-TW`（其余 70 余套回退到 `en-us`，约 42 MB）。
 
 ## 工程要点
@@ -116,7 +118,8 @@ dotnet publish Huanying.csproj -c Release -r win-x64 \
 | `TargetFramework` | `net10.0-windows10.0.19041.0` | Windows App SDK 1.6 不认 .NET 10，必须用 1.8 |
 | `WindowsPackageType` | `None` | 非打包（unpackaged），不生成 MSIX；**别把 `Package.appxmanifest` 塞给 `<ApplicationManifest>`**，那是包清单，会报 "root element should be `<assembly/>`" |
 | `RuntimeIdentifier` | `win-x64` | 自包含模式必须显式指定架构 |
-| `SelfContained` / `WindowsAppSDKSelfContained` | 由 CI 覆盖 | 决定「依赖运行时」还是「免安装」两个变体 |
+| `SelfContained` | 两个变体分别 `true` / `false` | 决定 .NET 运行时是否随包分发 |
+| `WindowsAppSDKSelfContained` | 两个变体都是 `true` | WinUI 运行时随包分发，用户不必预装 Windows App SDK Runtime |
 | `Microsoft.Windows.SDK.BuildTools` | `10.0.26100.4654` | 低于此版本会触发 NU1605 包降级错误 |
 
 其他约束：

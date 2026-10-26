@@ -97,6 +97,33 @@ jobs:
           }
           Write-Host "文件数：$((Get-ChildItem $dir -Recurse -File).Count)"
 
+      - name: Slim
+        if: matrix.flavor == 'self-contained'
+        shell: pwsh
+        run: |
+          $dir = "publish/${{ matrix.flavor }}"
+
+          # 这个应用不用 Windows AI / 本地推理，ONNX + DirectML 纯属体积负担（约 39 MB）
+          $ai = @(
+            "onnxruntime.dll",
+            "onnxruntime_providers_shared.dll",
+            "DirectML.dll",
+            "Microsoft.ML.OnnxRuntime.dll"
+          )
+          foreach ($f in $ai) {
+            $p = Join-Path $dir $f
+            if (Test-Path $p) { Remove-Item $p -Force }
+          }
+
+          # WinUI 自带的 76 套语言资源（约 43 MB），只留中英文，其余回退到 en-us
+          $keep = @("en-us", "en-GB", "zh-CN", "zh-TW")
+          Get-ChildItem $dir -Directory |
+            Where-Object { $_.Name -match '^[a-z]{2}-[A-Z]{2}$' -and $keep -notcontains $_.Name } |
+            Remove-Item -Recurse -Force
+
+          $size = [math]::Round((Get-ChildItem $dir -Recurse -File | Measure-Object Length -Sum).Sum / 1MB, 1)
+          Write-Host "精简后体积：$size MB"
+
       - name: Package
         shell: pwsh
         run: |

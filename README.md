@@ -51,10 +51,10 @@
 
 到 [Releases](../../releases/latest) 页下载，两个包内容一致，区别只在运行时是否自带：
 
-| 包 | 体积 | 需要安装 |
-| --- | --- | --- |
-| `Huanying-<版本>-win-x64-self-contained.zip` | 大 | 无需安装，**解压即用** |
-| `Huanying-<版本>-win-x64-framework-dependent.zip` | 小 | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) + [Windows App SDK 1.8 Runtime](https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads) |
+| 包 | 下载 | 解压后 | 需要安装 |
+| --- | --- | --- | --- |
+| `Huanying-<版本>-win-x64-self-contained.zip` | ~71 MB | ~186 MB | 无需安装，**解压即用** |
+| `Huanying-<版本>-win-x64-framework-dependent.zip` | ~15 MB | ~50 MB | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) + [Windows App SDK 1.8 Runtime](https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads) |
 
 解压后直接运行 `Huanying.exe`。这不是 MSIX 安装包，不写注册表，删掉文件夹即卸载。
 
@@ -103,6 +103,9 @@ dotnet publish Huanying.csproj -c Release -r win-x64 \
 
 推一个 tag（如 `v1.0.0`）上去，[`.github/workflows/release.yml`](.github/workflows/release.yml)
 会自动编译上面两个变体、各打一个 `Huanying-<版本>-win-x64-<flavor>.zip`，并创建 Release。
+
+免安装版打包前会做一次精简：删掉本应用用不到的 Windows AI / ONNX 运行时（`onnxruntime.dll`、`DirectML.dll`
+等，约 39 MB），语言资源只保留 `en-us` / `en-GB` / `zh-CN` / `zh-TW`（其余 70 余套回退到 `en-us`，约 42 MB）。
 
 ## 工程要点
 

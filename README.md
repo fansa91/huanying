@@ -54,8 +54,8 @@
 
 | 包 | 下载 | 解压后 | 需要安装 |
 | --- | --- | --- | --- |
-| `Huanying-<版本>-win-x64-self-contained.zip` | ~SIZE_SC | ~SIZE_SC_RAW | 无需安装，**解压即用** |
-| `Huanying-<版本>-win-x64-framework-dependent.zip` | ~SIZE_FD | ~SIZE_FD_RAW | 只需 [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) |
+| `Huanying-<版本>-win-x64-self-contained.zip` | ~74 MB | ~185 MB | 无需安装，**解压即用** |
+| `Huanying-<版本>-win-x64-framework-dependent.zip` | ~38 MB | ~108 MB | 只需 [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) |
 
 两者都**不需要**额外安装 Windows App SDK 1.8 Runtime —— WinUI 的运行时组件已经在包里了。
 解压后直接运行 `Huanying.exe`。这不是 MSIX 安装包，不写注册表，删掉文件夹即卸载。

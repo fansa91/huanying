@@ -1,0 +1,21 @@
+# 构建输出
+bin/
+obj/
+publish/
+*.user
+*.suo
+.vs/
+
+# 自检产物（截图、日志）
+.shots/
+*.log
+
+# 工具生成物（可由脚本重新生成）
+tools/posters/
+tools/__pycache__/
+__pycache__/
+*.pyc
+
+# 系统文件
+.DS_Store
+Thumbs.db

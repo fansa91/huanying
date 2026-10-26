@@ -1,0 +1,85 @@
+<Page
+    x:Class="Huanying.Views.ShellPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Microsoft.UI.Xaml.Controls"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Grid>
+        <controls:NavigationView x:Name="NavView"
+                                 Style="{StaticResource MacNavigationViewStyle}"
+                                 IsPaneOpen="True"
+                                 IsPaneToggleButtonVisible="True"
+                                 PaneDisplayMode="Left"
+                                 ItemInvoked="NavView_ItemInvoked"
+                                 SelectionChanged="NavView_SelectionChanged">
+
+            <controls:NavigationView.Header>
+                <Grid Height="32" VerticalAlignment="Top">
+                    <TextBlock Text="Huanying"
+                               VerticalAlignment="Center"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                </Grid>
+            </controls:NavigationView.Header>
+
+            <!-- 主导航 -->
+            <controls:NavigationView.MenuItems>
+                <controls:NavigationViewItem x:Name="HomeItem"
+                                             Content="首页"
+                                             Style="{StaticResource MacSidebarItemStyle}"
+                                             Tag="HomePage">
+                    <controls:NavigationViewItem.Icon>
+                        <SymbolIcon Symbol="Home" />
+                    </controls:NavigationViewItem.Icon>
+                </controls:NavigationViewItem>
+
+                <controls:NavigationViewItem x:Name="FavoriteItem"
+                                             Content="收藏"
+                                             Style="{StaticResource MacSidebarItemStyle}"
+                                             Tag="FavoritesPage">
+                    <controls:NavigationViewItem.Icon>
+                        <SymbolIcon Symbol="Favorite" />
+                    </controls:NavigationViewItem.Icon>
+                </controls:NavigationViewItem>
+
+                <controls:NavigationViewItem x:Name="HistoryItem"
+                                             Content="历史"
+                                             Style="{StaticResource MacSidebarItemStyle}"
+                                             Tag="HistoryPage">
+                    <controls:NavigationViewItem.Icon>
+                        <SymbolIcon Symbol="Clock" />
+                    </controls:NavigationViewItem.Icon>
+                </controls:NavigationViewItem>
+
+                <controls:NavigationViewItem x:Name="SourceItem"
+                                             Content="源管理"
+                                             Style="{StaticResource MacSidebarItemStyle}"
+                                             Tag="SourceListPage">
+                    <controls:NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE774;" />
+                    </controls:NavigationViewItem.Icon>
+                </controls:NavigationViewItem>
+            </controls:NavigationView.MenuItems>
+
+            <!-- 底部固定：设置（macOS 把设置放侧边栏底部） -->
+            <controls:NavigationView.FooterMenuItems>
+                <controls:NavigationViewItem x:Name="SettingsItem"
+                                             Content="设置"
+                                             Style="{StaticResource MacSidebarItemStyle}"
+                                             Tag="SettingsPage">
+                    <controls:NavigationViewItem.Icon>
+                        <SymbolIcon Symbol="Setting" />
+                    </controls:NavigationViewItem.Icon>
+                </controls:NavigationViewItem>
+            </controls:NavigationView.FooterMenuItems>
+
+            <controls:NavigationView.Content>
+                <Frame x:Name="ContentFrame" />
+            </controls:NavigationView.Content>
+        </controls:NavigationView>
+    </Grid>
+</Page>

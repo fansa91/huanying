@@ -1,0 +1,80 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <RootNamespace>Huanying</RootNamespace>
+    <AssemblyName>Huanying</AssemblyName>
+    <UseWinUI>true</UseWinUI>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <WindowsPackageType>None</WindowsPackageType>
+
+    <!-- 架构：命令行可用 -p:RuntimeIdentifier=win-arm64 覆盖 -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+
+    <!--
+      SelfContained                .NET 运行时是否打进输出目录
+      WindowsAppSDKSelfContained   WinUI / Windows App SDK 运行时是否打进输出目录
+
+      Release 的两个变体由 CI 通过命令行覆盖：
+        依赖运行时版：-p:SelfContained=false -p:WindowsAppSDKSelfContained=false
+        免安装版    ：-p:SelfContained=true  -p:WindowsAppSDKSelfContained=true
+    -->
+    <SelfContained Condition="'$(SelfContained)' == ''">false</SelfContained>
+    <WindowsAppSDKSelfContained Condition="'$(WindowsAppSDKSelfContained)' == ''">true</WindowsAppSDKSelfContained>
+
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- 应用信息 / 图标 -->
+    <ApplicationIcon>Assets\Huanying.ico</ApplicationIcon>
+    <Product>Huanying</Product>
+    <AssemblyTitle>Huanying</AssemblyTitle>
+    <Description>Huanying — 一个 WinUI 3 的桌面影片浏览与播放客户端</Description>
+    <Company>Huanying</Company>
+    <Copyright>Copyright © 2026 Huanying</Copyright>
+    <Version>1.0.0</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
+    <PackageReference Include="SkiaSharp" Version="3.119.0" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.0" />
+  </ItemGroup>
+
+  <!-- 图标要跟到输出目录，窗口才能用 AppWindow.SetIcon 读到 -->
+  <ItemGroup>
+    <None Remove="Assets\**\*" />
+    <Content Include="Assets\Huanying.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Huanying.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!--
+    WinUI 的 PRI（XAML 资源包）只在 Build 阶段产出，dotnet publish 不会自动搬过去。
+    缺了 Huanying.pri，打包后的 exe 一启动就报
+    "Cannot locate resource from 'ms-appx:///MainWindow.xaml'"。
+  -->
+  <Target Name="CopyAppPriToPublish" AfterTargets="Publish">
+    <PropertyGroup>
+      <_PriInTargetDir>$(TargetDir)$(AssemblyName).pri</_PriInTargetDir>
+      <_PriInOutDir>$(OutDir)$(AssemblyName).pri</_PriInOutDir>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <_AppPri Include="$(_PriInTargetDir)" Condition="Exists('$(_PriInTargetDir)')" />
+      <_AppPri Include="$(_PriInOutDir)" Condition="'@(_AppPri)' == '' And Exists('$(_PriInOutDir)')" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(_AppPri)"
+          DestinationFolder="$(PublishDir)"
+          SkipUnchangedFiles="true"
+          Condition="'@(_AppPri)' != ''" />
+
+    <Error Condition="'@(_AppPri)' == ''"
+           Text="找不到 $(AssemblyName).pri（已查 $(_PriInTargetDir) 与 $(_PriInOutDir)），发布包缺少 XAML 资源会无法启动。" />
+  </Target>
+
+</Project>

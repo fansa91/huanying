@@ -1,0 +1,181 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号（不含 v 前缀），留空则用 csproj 里的 Version"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+env:
+  DOTNET_VERSION: "10.0.x"
+  APP_NAME: Huanying
+  RID: win-x64
+
+jobs:
+  build:
+    name: Build (${{ matrix.flavor }})
+    runs-on: windows-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 依赖运行时版：体积小，需要目标机安装 .NET 与 Windows App SDK 运行时
+          - flavor: framework-dependent
+            self_contained: "false"
+            wasdk_self_contained: "false"
+          # 免安装版：把 .NET 与 Windows App SDK 一起打进来，解压即用
+          - flavor: self-contained
+            self_contained: "true"
+            wasdk_self_contained: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = ""
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $v = "${{ github.ref_name }}".TrimStart("v")
+          } elseif ("${{ github.event.inputs.version }}") {
+            $v = "${{ github.event.inputs.version }}".TrimStart("v")
+          }
+          if ([string]::IsNullOrWhiteSpace($v)) {
+            [xml]$csproj = Get-Content "Huanying.csproj"
+            $v = $csproj.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          }
+          if ([string]::IsNullOrWhiteSpace($v)) { $v = "0.0.0" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "version = $v"
+
+      - name: Restore
+        run: dotnet restore Huanying.csproj -r ${{ env.RID }}
+
+      - name: Publish
+        shell: pwsh
+        run: |
+          dotnet publish Huanying.csproj `
+            -c Release `
+            -r ${{ env.RID }} `
+            --self-contained ${{ matrix.self_contained }} `
+            -p:WindowsAppSDKSelfContained=${{ matrix.wasdk_self_contained }} `
+            -p:Version=${{ steps.ver.outputs.version }} `
+            -p:AssemblyVersion=${{ steps.ver.outputs.version }} `
+            -p:FileVersion=${{ steps.ver.outputs.version }} `
+            -p:InformationalVersion=${{ steps.ver.outputs.version }} `
+            -o publish/${{ matrix.flavor }}
+
+      - name: Sanity check
+        shell: pwsh
+        run: |
+          $dir = "publish/${{ matrix.flavor }}"
+          $must = @(
+            "$dir/Huanying.exe",
+            "$dir/Huanying.dll",
+            "$dir/Huanying.pri",          # XAML 资源包，缺了启动即崩
+            "$dir/Assets/Huanying.ico",
+            "$dir/Assets/Huanying.png"
+          )
+          foreach ($f in $must) {
+            if (-not (Test-Path $f)) { throw "缺少 $f，发布不完整" }
+          }
+          Write-Host "文件数：$((Get-ChildItem $dir -Recurse -File).Count)"
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $name = "${{ env.APP_NAME }}-${{ steps.ver.outputs.version }}-${{ env.RID }}-${{ matrix.flavor }}"
+          Compress-Archive -Path "publish/${{ matrix.flavor }}/*" -DestinationPath "$name.zip" -CompressionLevel Optimal
+          $size = [math]::Round((Get-Item "$name.zip").Length / 1MB, 1)
+          Write-Host "打包完成：$name.zip（$size MB）"
+          "zipname=$name.zip" >> $env:GITHUB_OUTPUT
+        id: pack
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-${{ steps.ver.outputs.version }}-${{ matrix.flavor }}
+          path: ${{ steps.pack.outputs.zipname }}
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            V="${GITHUB_REF_NAME#v}"
+          elif [ -n "${{ github.event.inputs.version }}" ]; then
+            V="${{ github.event.inputs.version }}"
+            V="${V#v}"
+          else
+            V=$(grep -oP '(?<=<Version>)[^<]+' Huanying.csproj | head -1)
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="v${{ steps.ver.outputs.version }}"
+          ls -lh dist
+
+          NOTES=$(cat <<'EOF'
+          ### 下载哪个？
+
+          | 包 | 说明 | 需要安装 |
+          | --- | --- | --- |
+          | `*-self-contained.zip` | 免安装版，运行时全部打包在内 | 无需安装，解压即用 |
+          | `*-framework-dependent.zip` | 依赖运行时版，体积更小 | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) + [Windows App SDK 1.8 Runtime](https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads) |
+
+          两个包都是 **Windows x64**、免安装（非 MSIX）直接运行 `Huanying.exe`。
+
+          ### 首次运行
+
+          应用**不内置任何视频接口**。启动后到左侧「源管理」添加一个苹果CMS（MacCMS V10）JSON 接口地址，例如：
+
+          ```
+          https://你的域名/api.php/provide/vod
+          ```
+
+          ### 说明
+
+          - 本程序仅做界面与播放，不提供、不存储、不分发任何影片资源
+          - 播放能力取决于你自行配置的接口与其返回的片源
+          EOF
+          )
+
+          gh release create "$TAG" dist/*.zip \
+            --title "${{ env.APP_NAME }} $TAG" \
+            --notes "$NOTES" || \
+          gh release upload "$TAG" dist/*.zip --clobber

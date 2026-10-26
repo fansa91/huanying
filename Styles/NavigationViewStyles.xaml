@@ -1,0 +1,27 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:controls="using:Microsoft.UI.Xaml.Controls">
+
+    <!-- macOS 风格的侧边栏菜单项 -->
+    <Style x:Key="MacSidebarItemStyle" TargetType="controls:NavigationViewItem">
+        <Setter Property="Height" Value="44" />
+        <Setter Property="MinHeight" Value="44" />
+        <Setter Property="Padding" Value="16,0" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <!-- macOS 风格的 NavigationView 外观（只用属性，不重写 ControlTemplate） -->
+    <Style x:Key="MacNavigationViewStyle" TargetType="controls:NavigationView">
+        <Setter Property="PaneDisplayMode" Value="Left" />
+        <Setter Property="IsPaneToggleButtonVisible" Value="True" />
+        <Setter Property="IsSettingsVisible" Value="False" />
+        <Setter Property="AlwaysShowHeader" Value="False" />
+        <Setter Property="PaneTitle" Value="Huanying" />
+        <Setter Property="OpenPaneLength" Value="240" />
+        <Setter Property="Background" Value="{ThemeResource LayerFillColorDefaultBrush}" />
+    </Style>
+
+</ResourceDictionary>

@@ -1,0 +1,117 @@
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media.Animation;
+using System;
+
+namespace Huanying.Views;
+
+public sealed partial class ShellPage : Page
+{
+    public ShellPage()
+    {
+        this.InitializeComponent();
+
+        // 默认进入首页
+        ContentFrame.Navigate(typeof(HomePage), null, new SuppressNavigationTransitionInfo());
+        NavView.SelectedItem = HomeItem;
+
+        // 页面内部跳转（例如设置 → 源管理）时同步侧边栏选中项
+        ContentFrame.Navigated += (_, e) => SyncSelection(e.SourcePageType);
+
+        if (App.MainWindow != null)
+        {
+            App.MainWindow.SizeChanged += OnWindowSizeChanged;
+        }
+    }
+
+    private void SyncSelection(Type? pageType)
+    {
+        NavigationViewItem? item = pageType switch
+        {
+            _ when pageType == typeof(HomePage) => HomeItem,
+            _ when pageType == typeof(FavoritesPage) => FavoriteItem,
+            _ when pageType == typeof(HistoryPage) => HistoryItem,
+            _ when pageType == typeof(SourceListPage) => SourceItem,
+            _ when pageType == typeof(SettingsPage) => SettingsItem,
+            _ => null
+        };
+
+        if (item != null && !ReferenceEquals(NavView.SelectedItem, item))
+        {
+            NavView.SelectedItem = item;
+        }
+    }
+
+    private void NavView_ItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
+    {
+        if (args.InvokedItemContainer != null)
+        {
+            NavigateToPage(args.InvokedItemContainer.Tag?.ToString());
+        }
+    }
+
+    private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+    {
+        if (args.SelectedItemContainer != null)
+        {
+            NavigateToPage(args.SelectedItemContainer.Tag?.ToString());
+        }
+    }
+
+    private void NavigateToPage(string? tag)
+    {
+        Type? pageType = tag switch
+        {
+            "HomePage" => typeof(HomePage),
+            "FavoritesPage" => typeof(FavoritesPage),
+            "HistoryPage" => typeof(HistoryPage),
+            "SettingsPage" => typeof(SettingsPage),
+            "SourceListPage" => typeof(SourceListPage),
+            _ => typeof(HomePage)
+        };
+
+        if (ContentFrame.CurrentSourcePageType != pageType)
+        {
+            ContentFrame.Navigate(pageType, null, new DrillInNavigationTransitionInfo());
+        }
+
+        // 窄窗口下点击后自动收起侧边栏（macOS 紧凑模式行为）
+        if (App.MainWindow != null && App.MainWindow.Bounds.Width < 800)
+        {
+            NavView.IsPaneOpen = false;
+        }
+    }
+
+    private void OnWindowSizeChanged(object sender, WindowSizeChangedEventArgs args)
+    {
+        double width = args.Size.Width;
+
+        if (width < 700)
+        {
+            NavView.PaneDisplayMode = NavigationViewPaneDisplayMode.LeftCompact;
+            NavView.IsPaneOpen = false;
+        }
+        else if (width < 1000)
+        {
+            NavView.PaneDisplayMode = NavigationViewPaneDisplayMode.Left;
+            NavView.IsPaneOpen = false;
+        }
+        else
+        {
+            NavView.PaneDisplayMode = NavigationViewPaneDisplayMode.Left;
+            NavView.IsPaneOpen = true;
+        }
+    }
+
+    /// <summary>诊断用：把当前内嵌页面的状态串出来（HY_SHOT 外壳截图时打印）</summary>
+    internal string DebugCurrentPage() => ContentFrame.Content switch
+    {
+        HomePage home => home.DebugState(),
+        SourceListPage sources => sources.DebugState(),
+        _ => string.Empty
+    };
+
+    /// <summary>诊断用：在外壳里导航（保留侧边栏），供 HY_NAV=shell:&lt;page&gt; 截图</summary>
+    internal void NavigateTo(Type pageType, object? parameter = null)
+        => ContentFrame.Navigate(pageType, parameter);
+}

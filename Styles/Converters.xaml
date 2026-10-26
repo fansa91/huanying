@@ -1,0 +1,11 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:Huanying.Converters">
+
+    <!-- App.xaml 内直接声明自定义类型会触发 WMC0001，统一放到独立字典里 -->
+    <converters:StringToImageSourceConverter x:Key="ImgConv" />
+    <converters:BoolToVisibilityConverter x:Key="BoolToVis" />
+    <converters:InverseBoolToVisibilityConverter x:Key="BoolToVisInverse" />
+
+</ResourceDictionary>

@@ -1,0 +1,97 @@
+<Page
+    x:Class="Huanying.Views.FavoritesPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Microsoft.UI.Xaml.Controls"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Grid Padding="32,24,32,0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,18">
+            <TextBlock Text="收藏"
+                       FontSize="30"
+                       FontWeight="SemiBold"
+                       Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+            <TextBlock x:Name="SubtitleText"
+                       FontSize="13"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        </StackPanel>
+
+        <Grid Grid.Row="1">
+            <GridView x:Name="FavoriteGrid"
+                      SelectionMode="None"
+                      IsItemClickEnabled="True"
+                      ItemClick="FavoriteGrid_ItemClick">
+                <GridView.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Width="152" Spacing="7" Margin="0,0,18,22">
+                            <Border Height="222"
+                                    CornerRadius="10"
+                                    Background="{Binding PosterBrush}">
+                                <Grid>
+                                    <FontIcon Glyph="&#xE714;"
+                                              FontSize="30"
+                                              Foreground="White"
+                                              Opacity="0.45"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                                    <Image Source="{Binding Pic, Converter={StaticResource ImgConv}}"
+                                           Stretch="UniformToFill" />
+                                    <Border Width="30"
+                                            Height="30"
+                                            Margin="10"
+                                            CornerRadius="15"
+                                            Background="#66000000"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Top">
+                                        <FontIcon Glyph="&#xEB52;"
+                                                  FontSize="14"
+                                                  Foreground="White" />
+                                    </Border>
+                                </Grid>
+                            </Border>
+                            <TextBlock Text="{Binding Title}"
+                                       FontSize="14"
+                                       FontWeight="SemiBold"
+                                       MaxLines="1"
+                                       TextTrimming="CharacterEllipsis"
+                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                            <TextBlock Text="{Binding Subtitle}"
+                                       FontSize="12"
+                                       MaxLines="1"
+                                       TextTrimming="CharacterEllipsis"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </GridView.ItemTemplate>
+            </GridView>
+
+            <!-- 空状态 -->
+            <StackPanel x:Name="EmptyState"
+                        Visibility="Collapsed"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Spacing="12">
+                <FontIcon Glyph="&#xE734;"
+                          FontSize="40"
+                          Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <TextBlock Text="还没有收藏"
+                           FontSize="16"
+                           FontWeight="SemiBold"
+                           HorizontalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                <TextBlock Text="在节目详情页点击 ♡ 即可加入收藏"
+                           FontSize="13"
+                           HorizontalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Page>

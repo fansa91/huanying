@@ -272,8 +272,8 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="版本" Style="{StaticResource SettingsRowTitleStyle}" />
-                            <TextBlock Grid.Column="1"
-                                       Text="1.0.0 (WinUI 3)"
+                            <TextBlock x:Name="AppVersionText"
+                                       Grid.Column="1"
                                        FontSize="13"
                                        VerticalAlignment="Center"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />

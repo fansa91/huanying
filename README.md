@@ -107,8 +107,13 @@ dotnet publish Huanying.csproj -c Release -r win-x64 \
   --self-contained false -p:WindowsAppSDKSelfContained=true -o publish/framework-dependent
 ```
 
-推一个 tag（如 `v0.1.0`）上去，[`.github/workflows/release.yml`](.github/workflows/release.yml)
-会自动编译上面两个变体、各打一个 `Huanying-<版本>-win-x64-<flavor>.zip`，并创建 Release。
+推一个 tag（如 `v0.1.1`）上去，[`.github/workflows/release.yml`](.github/workflows/release.yml)
+会从 tag 解析版本号（`v0.1.1` → `0.1.1`），用 `-p:Version` 覆盖进编译，
+再自动编译上面两个变体、各打一个 `Huanying-<版本>-win-x64-<flavor>.zip`，并创建对应 Release。
+
+版本号只有 tag 这一个来源，代码里没有写死的版本字符串：`Huanying.csproj` 里的 `<Version>`
+只是本地直接 `dotnet build` 时的兜底，应用「设置 → 关于」显示的是编译产物里的程序集元数据
+（`AssemblyInformationalVersion`），所以发布出去装的是哪个 tag，关于页就显示哪个版本。
 
 两个包打包前都会做一次精简：删掉本应用用不到的 Windows AI / ONNX 运行时（`onnxruntime.dll`、`DirectML.dll`
 等，约 39 MB），语言资源只保留 `en-us` / `en-GB` / `zh-CN` / `zh-TW`（其余 70 余套回退到 `en-us`，约 42 MB）。

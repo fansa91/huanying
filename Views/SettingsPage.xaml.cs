@@ -13,6 +13,9 @@ public sealed partial class SettingsPage : Page
     {
         this.InitializeComponent();
 
+        // 版本号来自程序集元数据，CI 用 tag 覆盖，所以这里显示的就是发布 tag 的版本
+        AppVersionText.Text = AppInfo.DisplayVersion;
+
         this.Loaded += (_, _) =>
         {
             _initializing = true;

@@ -84,6 +84,12 @@ public sealed partial class PlayerPage : Page
     private double _dragBaseVolume;
     private double _dragBaseBrightness;
 
+    /* 音量绑定系统主音量 */
+    private SystemVolumeService? _systemVolume;
+
+    /// <summary>正在把外部音量写回滑块，避免 ValueChanged 又反过来写系统音量</summary>
+    private bool _applyingVolume;
+
     public PlayerPage()
     {
         this.InitializeComponent();
@@ -161,6 +167,8 @@ public sealed partial class PlayerPage : Page
 
         Player.SetMediaPlayer(_mediaPlayer);
 
+        InitVolumeBinding();
+
         EpisodeList.ItemsSource = args.Episodes;
         TitleText.Text = string.IsNullOrWhiteSpace(args.VodName) ? args.Title : args.VodName;
 
@@ -178,6 +186,13 @@ public sealed partial class PlayerPage : Page
         _hintTimer.Stop();
 
         RestorePresenter();
+
+        if (_systemVolume != null)
+        {
+            _systemVolume.Changed -= SystemVolume_Changed;
+            _systemVolume.Dispose();
+            _systemVolume = null;
+        }
 
         if (_mediaPlayer != null)
         {
@@ -244,7 +259,11 @@ public sealed partial class PlayerPage : Page
         _openTimeoutReported = false;
 
         _mediaPlayer.Source = mediaItem;
-        _mediaPlayer.Volume = Math.Clamp(VolumeSlider.Value / 100.0, 0, 1);
+
+        // 音量走系统主音量（见 InitVolumeBinding），播放器自身保持满音量
+        if (_systemVolume is { IsAvailable: true }) _mediaPlayer.Volume = 1;
+        else _mediaPlayer.Volume = Math.Clamp(VolumePercent / 100.0, 0, 1);
+
         _desiredPlaying = true;
         _mediaPlayer.Play();
 
@@ -315,27 +334,113 @@ public sealed partial class PlayerPage : Page
         ShowControls();
     }
 
+    /* ================= 音量（绑定系统主音量） ================= */
+
+    /// <summary>当前音量百分比：优先读系统主音量，拿不到音频端点时退回播放器自身音量</summary>
+    private double VolumePercent =>
+        _systemVolume is { IsAvailable: true } sv ? sv.Volume * 100 : (_mediaPlayer?.Volume ?? 1) * 100;
+
+    private bool IsMuted =>
+        _systemVolume is { IsAvailable: true } sv ? sv.Muted : (_mediaPlayer?.IsMuted ?? false);
+
+    /// <summary>
+    /// 把音量控件接到系统主音量上：滑块 / 拖动 / 静音按钮 / ↑↓ 改的都是系统音量，
+    /// 任务栏和键盘音量键改了也会实时反映到界面上。
+    /// </summary>
+    private void InitVolumeBinding()
+    {
+        _systemVolume = new SystemVolumeService();
+
+        if (_systemVolume.IsAvailable)
+        {
+            _systemVolume.Changed += SystemVolume_Changed;
+
+            // 音量交给系统主音量后，播放器自身保持满音量，避免两边各降一半
+            if (_mediaPlayer != null)
+            {
+                _mediaPlayer.Volume = 1;
+                _mediaPlayer.IsMuted = false;
+            }
+        }
+
+        SyncVolumeUi();
+
+        App.Log($"VOLUME: system={_systemVolume.IsAvailable} percent={VolumePercent:0} muted={IsMuted}");
+    }
+
+    private void SystemVolume_Changed() => OnUi(SyncVolumeUi);
+
+    /// <summary>把系统音量写回界面（外部改动时调用）</summary>
+    private void SyncVolumeUi()
+    {
+        var percent = Math.Clamp(VolumePercent, 0, 100);
+
+        _applyingVolume = true;
+        try
+        {
+            if (Math.Abs(VolumeSlider.Value - percent) > 0.5) VolumeSlider.Value = percent;
+        }
+        finally
+        {
+            _applyingVolume = false;
+        }
+
+        UpdateVolumeIcon();
+    }
+
+    /// <summary>把音量百分比写到系统（或退回播放器）</summary>
+    private void ApplyVolume(double percent)
+    {
+        percent = Math.Clamp(percent, 0, 100);
+
+        if (_systemVolume is { IsAvailable: true } sv)
+        {
+            if (sv.Muted) sv.Muted = false;
+            sv.Volume = (float)(percent / 100);
+        }
+        else if (_mediaPlayer != null)
+        {
+            _mediaPlayer.IsMuted = false;
+            _mediaPlayer.Volume = percent / 100;
+        }
+
+        UpdateVolumeIcon();
+    }
+
+    private void SetVolumeFromUi(double percent)
+    {
+        ApplyVolume(percent);
+
+        _applyingVolume = true;
+        try
+        {
+            if (Math.Abs(VolumeSlider.Value - percent) > 0.5) VolumeSlider.Value = Math.Clamp(percent, 0, 100);
+        }
+        finally
+        {
+            _applyingVolume = false;
+        }
+    }
+
     private void AdjustVolume(double delta)
     {
-        if (_mediaPlayer == null) return;
+        var volume = Math.Clamp(VolumePercent + delta * 100, 0, 100);
 
-        var volume = Math.Clamp(_mediaPlayer.Volume + delta, 0, 1);
-        _mediaPlayer.Volume = volume;
-        _mediaPlayer.IsMuted = false;
+        SetVolumeFromUi(volume);
 
-        VolumeSlider.Value = volume * 100;
-        UpdateVolumeIcon();
-        ShowHint($"音量 {volume * 100:0}%");
+        ShowHint($"音量 {volume:0}%");
         ShowControls();
     }
 
     private void ToggleMute()
     {
-        if (_mediaPlayer == null) return;
+        var muted = !IsMuted;
 
-        _mediaPlayer.IsMuted = !_mediaPlayer.IsMuted;
+        if (_systemVolume is { IsAvailable: true } sv) sv.Muted = muted;
+        else if (_mediaPlayer != null) _mediaPlayer.IsMuted = muted;
+
         UpdateVolumeIcon();
-        ShowHint(_mediaPlayer.IsMuted ? "静音" : "取消静音");
+        ShowHint(muted ? "静音" : "取消静音");
         ShowControls();
     }
 
@@ -593,7 +698,7 @@ public sealed partial class PlayerPage : Page
         _dragIsSeek = false;
         _dragOrigin = e.GetCurrentPoint(GestureLayer).Position;
 
-        _dragBaseVolume = _mediaPlayer?.Volume ?? 1;
+        _dragBaseVolume = VolumePercent / 100.0;
         _dragBaseBrightness = BrightnessOverlay.Opacity;
         _dragStartSeconds = _session?.Position.TotalSeconds ?? 0;
         _dragTargetSeconds = _dragStartSeconds;
@@ -641,13 +746,7 @@ public sealed partial class PlayerPage : Page
         {
             // 右半屏：音量
             var volume = Math.Clamp(_dragBaseVolume - dy / 320.0, 0, 1);
-            if (_mediaPlayer != null)
-            {
-                _mediaPlayer.Volume = volume;
-                _mediaPlayer.IsMuted = false;
-            }
-            VolumeSlider.Value = volume * 100;
-            UpdateVolumeIcon();
+            SetVolumeFromUi(volume * 100);
             ShowHint($"音量 {volume * 100:0}%");
         }
     }
@@ -1140,6 +1239,38 @@ public sealed partial class PlayerPage : Page
         {
             // 某些窗口状态（如已被系统接管）可能失败，静默忽略
         }
+        finally
+        {
+            // 全屏时把外壳侧边栏一起收掉，画面才是真正的满屏
+            ApplyShellChrome();
+        }
+    }
+
+    /// <summary>全屏 / 画中画时收起外壳（侧边栏 + 页头），回到窗口时还原</summary>
+    private void ApplyShellChrome() => FindShell()?.SetChromeVisible(!_isFullScreen && !_isPip);
+
+    private ShellPage? _shellCache;
+
+    /// <summary>沿视觉树往上找外壳页；播放页被直接导航到根 Frame 时返回 null</summary>
+    private ShellPage? FindShell()
+    {
+        if (_shellCache != null) return _shellCache;
+
+        DependencyObject? node = this;
+        while (node != null)
+        {
+            if (node is ShellPage shell)
+            {
+                _shellCache = shell;
+                return shell;
+            }
+
+            node = node is FrameworkElement fe
+                ? fe.Parent ?? VisualTreeHelper.GetParent(fe)
+                : VisualTreeHelper.GetParent(node);
+        }
+
+        return null;
     }
 
     private void TogglePip()
@@ -1170,6 +1301,10 @@ public sealed partial class PlayerPage : Page
         {
             // 忽略
         }
+        finally
+        {
+            ApplyShellChrome();
+        }
     }
 
     private void RestorePresenter()
@@ -1190,6 +1325,8 @@ public sealed partial class PlayerPage : Page
 
         _isFullScreen = false;
         _isPip = false;
+
+        ApplyShellChrome();
     }
 
     /* ================= 控件事件 ================= */
@@ -1241,16 +1378,21 @@ public sealed partial class PlayerPage : Page
 
     private void VolumeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
-        if (_mediaPlayer == null) return;
+        // 外部音量回写界面时不再反向写一次，避免来回抖动
+        if (_applyingVolume) return;
 
-        _mediaPlayer.Volume = Math.Clamp(e.NewValue / 100.0, 0, 1);
-        if (_mediaPlayer.Volume > 0) _mediaPlayer.IsMuted = false;
-        UpdateVolumeIcon();
+        if (Math.Abs(e.NewValue - VolumePercent) < 0.5)
+        {
+            UpdateVolumeIcon();
+            return;
+        }
+
+        ApplyVolume(e.NewValue);
     }
 
     private void UpdateVolumeIcon()
     {
-        var muted = _mediaPlayer == null || _mediaPlayer.IsMuted || _mediaPlayer.Volume <= 0.001;
+        var muted = IsMuted || VolumePercent <= 0.5;
         VolumeIcon.Glyph = muted ? "\uE74F" : "\uE767";
     }
 
@@ -1320,8 +1462,24 @@ public sealed partial class PlayerPage : Page
 
     private void Space_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        TogglePlayPause();
         args.Handled = true;
+
+        if (_mediaPlayer == null || _session == null) return;
+
+        // 空格 = 暂停 / 继续：播放中按一下暂停，暂停中按一下继续
+        if (_session.PlaybackState == MediaPlaybackState.Playing)
+        {
+            _mediaPlayer.Pause();
+            _desiredPlaying = false;
+        }
+        else
+        {
+            _mediaPlayer.Play();
+            _desiredPlaying = true;
+        }
+
+        ShowControls();
+        UpdatePlayStateUi();
     }
 
     private void SeekBack_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
@@ -1388,6 +1546,26 @@ public sealed partial class PlayerPage : Page
     }
 
     /* ================= 辅助 ================= */
+
+    /// <summary>诊断用：切一次全屏（HY_FS=1 时由自检调用）</summary>
+    internal void DebugToggleFullScreen() => ToggleFullScreen();
+
+    /// <summary>诊断用：把音量设到指定百分比并回读，验证是否真的写进了系统音量</summary>
+    internal string DebugSetVolume(int percent)
+    {
+        var before = VolumePercent;
+        SetVolumeFromUi(percent);
+        var after = VolumePercent;
+        var muted = IsMuted;
+
+        SetVolumeFromUi((int)Math.Round(before));
+        return $"target={percent}% before={before:0}% after={after:0}% muted={muted}";
+    }
+
+    /// <summary>诊断用：全屏 / 外壳 / 音量状态</summary>
+    internal string DebugChromeState() =>
+        $"fullscreen={_isFullScreen} pip={_isPip} shellChromeHidden={FindShell()?.IsChromeHidden} " +
+        $"volume={VolumePercent:0}% systemVolume={_systemVolume?.IsAvailable == true}";
 
     /// <summary>诊断用：供 HY_NAV 自检读取当前播放状态</summary>
     internal string DebugState()

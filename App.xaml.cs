@@ -309,7 +309,7 @@ public partial class App : Application
                 }
 
                 var episodes = item.Sources[0].Episodes;
-                root.Navigate(typeof(Views.PlayerPage), new Models.PlayerArgs
+                var playerArgs = new Models.PlayerArgs
                 {
                     VodId = item.Id,
                     VodName = item.Name,
@@ -317,16 +317,44 @@ public partial class App : Application
                     PosterUrl = item.Pic,
                     Episodes = episodes,
                     StartIndex = 0
-                });
+                };
+
+                // 走真实链路：播放页在 ShellPage 里面，全屏时才能验证侧边栏是否收起
+                if (root.Content is Views.ShellPage host) host.NavigateTo(typeof(Views.PlayerPage), playerArgs);
+                else root.Navigate(typeof(Views.PlayerPage), playerArgs);
 
                 await System.Threading.Tasks.Task.Delay(16000);
-                Log(root.Content is Views.PlayerPage player
+
+                var player = root.Content as Views.PlayerPage
+                             ?? (root.Content as Views.ShellPage)?.CurrentContent as Views.PlayerPage;
+                Log(player != null
                     ? $"NAV OK play: {player.DebugState()}"
                     : $"NAV FAIL play: content={root.Content?.GetType().Name}");
 
-                if (Environment.GetEnvironmentVariable("HY_INFO") == "1" && root.Content is Views.PlayerPage infoPlayer)
+                // 全屏自检：HY_FS=1 时切一次全屏、截图、再还原，验证侧边栏是否收起
+                if (Environment.GetEnvironmentVariable("HY_FS") == "1" && player != null)
                 {
-                    Log($"NAV INFO: {await infoPlayer.DebugInfoTextAsync()}");
+                    player.DebugToggleFullScreen();
+                    await System.Threading.Tasks.Task.Delay(2500);
+                    Log($"NAV FULLSCREEN: {player.DebugChromeState()}");
+                    await ShotAsync("player-fs");
+
+                    player.DebugToggleFullScreen();
+                    await System.Threading.Tasks.Task.Delay(1800);
+                    Log($"NAV RESTORE: {player.DebugChromeState()}");
+                    await ShotAsync("player-restored");
+                }
+
+                // 音量自检：HY_VOL=<0-100> 时写到系统音量再回读
+                if (Environment.GetEnvironmentVariable("HY_VOL") is { Length: > 0 } volSpec
+                    && int.TryParse(volSpec, out var volPercent) && player != null)
+                {
+                    Log($"VOL SET: {player.DebugSetVolume(volPercent)}");
+                }
+
+                if (Environment.GetEnvironmentVariable("HY_INFO") == "1" && player != null)
+                {
+                    Log($"NAV INFO: {await player.DebugInfoTextAsync()}");
                     await ShotAsync("player-info");
                 }
 

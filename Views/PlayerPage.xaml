@@ -6,8 +6,15 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    Background="Black">
+    Background="Black"
+    KeyboardAcceleratorPlacementMode="Hidden">
 
+    <!--
+        KeyboardAcceleratorPlacementMode="Hidden"：
+        默认 Auto 时 WinUI 会给挂了加速键的元素（这里是整个页面）加一个悬停提示，
+        鼠标移到画面上就会冒出一条「空格 / ← / → …」的快捷键气泡，挡画面也没意义，这里关掉。
+        快捷键本身照常可用。
+    -->
     <Page.KeyboardAccelerators>
         <KeyboardAccelerator Key="Space" Invoked="Space_Invoked" />
         <KeyboardAccelerator Key="Left" Invoked="SeekBack_Invoked" />
@@ -28,6 +35,8 @@
             <Setter Property="MinWidth" Value="0" />
             <Setter Property="MinHeight" Value="0" />
             <Setter Property="CornerRadius" Value="6" />
+            <!-- 不参与焦点：否则点过「全屏」再按空格，会重新点一次这个按钮而不是暂停 -->
+            <Setter Property="IsTabStop" Value="False" />
         </Style>
 
         <Style x:Key="PlayerTextButton" TargetType="Button">
@@ -37,6 +46,7 @@
             <Setter Property="MinWidth" Value="0" />
             <Setter Property="MinHeight" Value="0" />
             <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="IsTabStop" Value="False" />
         </Style>
     </Page.Resources>
 
@@ -98,6 +108,7 @@
                 VerticalAlignment="Center"
                 Opacity="0"
                 IsHitTestVisible="False"
+                IsTabStop="False"
                 Click="PlayPause_Click">
             <FontIcon x:Name="CenterPlayIcon"
                       Glyph="&#xE768;"

@@ -31,7 +31,11 @@
 
 - HLS / m3u8 直接播放，Media Foundation 自动选择硬件或软件解码
 - 自绘控制层：拖拽进度（左右 90 秒/屏宽）、左半屏调亮度、右半屏调音量、双击全屏、3.6 秒自动隐藏
-- 快捷键 `Space` / `←` `→` / `↑` `↓` / `F` / `M` / `I` / `Esc`
+- **音量绑定系统音量** —— 滑块 / 拖动 / 静音键改的都是系统主音量（Core Audio `IAudioEndpointVolume`），
+  键盘音量键、任务栏滑块、系统音量弹窗与界面实时互相跟随
+- **全屏不含侧边栏** —— 进全屏自动收掉左侧导航与页头，画面真正铺满；退出全屏原样还原
+- 快捷键 `Space`（暂停 / 继续）/ `←` `→` / `↑` `↓` / `F` / `M` / `I` / `Esc`；控制栏按钮不抢焦点，
+  按下空格永远是暂停，不会变成"再点一次上次点过的按钮"
 - 倍速 0.5–2.0×、画中画、选集抽屉、下一集 5 秒倒计时自动连播、断点续播
 - **视频信息面板** —— 分辨率、编码、帧率、码率、音频布局、缓冲区间、解码链路，一眼看清当前流用了什么
 
@@ -125,6 +129,12 @@ dotnet publish Huanying.csproj -c Release -r win-x64 \
 其他约束：
 
 - 自定义类型不能直接写在 `App.xaml` 里，必须放独立的 `ResourceDictionary`，否则报 WMC0001
+- 挂 `KeyboardAccelerator` 的元素默认会把加速键做成**悬停提示**（鼠标移上去冒出一条「空格」气泡）；
+  不想要就设 `KeyboardAcceleratorPlacementMode="Hidden"`，快捷键照样能用
+- 播放器按钮必须 `IsTabStop="False"`，否则点过某个按钮后按空格会**重新点它**（比如又把全屏切回去），
+  而不是暂停
+- 音量走系统主音量后，`MediaPlayer.Volume` 要固定在 1，不然两边各降一半；`IAudioEndpointVolume`
+  的回调在 COM 线程上触发，回写界面必须切回 UI 线程
 - `ThemeResource` 只能用真实存在的键；写错（例如 `FillColorAlterativeBaseBrush`）会让应用启动即崩 `0xC000027B`
 - `NavigationViewItemPresenter` 是内部类型，不能用于自定义 `ControlTemplate`，只能改 `Setter`
 - `MediaPlaybackSession` 的缓冲结束事件叫 `BufferingEnded`，没有 `BufferingCompleted`
@@ -150,6 +160,8 @@ dotnet publish Huanying.csproj -c Release -r win-x64 \
 | `HY_APITEST=1` | 请求一次当前接口并记录结果 |
 | `HY_NAV=home` / `shell:detail:1002` / `play` | 真实导航到指定页面并打印页面状态 |
 | `HY_INFO=1` | 播放页打开「视频信息」面板并输出其内容 |
+| `HY_FS=1` | 播放页切一次全屏、截图、再还原，并打印外壳（侧边栏）收起状态 |
+| `HY_VOL=<0-100>` | 把音量设到指定百分比再回读，验证系统音量绑定是否生效 |
 | `HY_SHOT=<路径>` | 用 `RenderTargetBitmap` 把窗口截成 PNG |
 
 `tools/` 下还有三个脚本，用于生成图标与 README 样板图：
@@ -173,7 +185,7 @@ Huanying/
 ├─ Controls/                MasonryLayout（瀑布流布局）、QueuedImage（队列图片控件）
 ├─ Models/                  VOD 数据模型、海报卡片、本地库、视频源
 ├─ Services/                VodApiService / ImageQueue / SourceStore / LibraryStore
-│                           AppSettings / HlsPlaylist / SniProbe
+│                           AppSettings / HlsPlaylist / SniProbe / SystemVolumeService
 ├─ Converters/  Styles/     XAML 转换器与主题样式
 ├─ Assets/                  Huanying.ico、Huanying.png
 ├─ branding/                1024px 图标

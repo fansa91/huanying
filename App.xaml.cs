@@ -174,6 +174,26 @@ public partial class App : Application
         {
             await System.Threading.Tasks.Task.Delay(1500);
 
+            // 订阅自检：HY_SUB=<订阅链接> 时先导入一次，验证解析、去重与落盘
+            if (Environment.GetEnvironmentVariable("HY_SUB") is { Length: > 0 } subUrl)
+            {
+                try
+                {
+                    var entries = await Services.SubscriptionService.FetchAsync(subUrl);
+                    Log($"SUB FETCH: {entries.Count} 条");
+                    foreach (var entry in entries) Log($"  · name='{entry.Name}' url={entry.Url}");
+
+                    var (added, skipped) = Services.AppServices.Sources.Import(entries, subUrl);
+                    Log($"SUB IMPORT: added={added} skipped={skipped} " +
+                        $"total={Services.AppServices.Sources.Items.Count} " +
+                        $"active='{Services.AppServices.Sources.ActiveName}'");
+                }
+                catch (Exception ex)
+                {
+                    Log($"SUB FAIL: {ex.GetType().Name} {ex.Message}");
+                }
+            }
+
             if (MainWindow?.Content is not Microsoft.UI.Xaml.Controls.Frame root)
             {
                 Log("NAV FAIL: 找不到根 Frame");
@@ -350,6 +370,21 @@ public partial class App : Application
                     && int.TryParse(volSpec, out var volPercent) && player != null)
                 {
                     Log($"VOL SET: {player.DebugSetVolume(volPercent)}");
+                }
+
+                // 常亮自检：HY_AWAKE=1 时申请一次、打印状态、再归还
+                if (Environment.GetEnvironmentVariable("HY_AWAKE") == "1" && player != null)
+                {
+                    Log($"NAV AWAKE ON: {player.DebugKeepAwake(true)}");
+                    await System.Threading.Tasks.Task.Delay(1500);
+                    Log($"NAV AWAKE OFF: {player.DebugKeepAwake(false)}");
+                }
+
+                // 快捷键映射自检：HY_KEYTEST=1 时逐个走一遍 ← → ↑ ↓ 空格 与一个无关键
+                if (Environment.GetEnvironmentVariable("HY_KEYTEST") == "1" && player != null)
+                {
+                    Log($"NAV KEYS: {player.DebugShortcuts()}");
+                    Log($"NAV KEYS AFTER: {player.DebugState()}");
                 }
 
                 if (Environment.GetEnvironmentVariable("HY_INFO") == "1" && player != null)

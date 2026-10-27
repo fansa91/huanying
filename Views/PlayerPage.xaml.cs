@@ -17,6 +17,7 @@ using Windows.Foundation.Collections;
 using Windows.Media.Core;
 using Windows.Media.MediaProperties;
 using Windows.Media.Playback;
+using Windows.System;
 
 namespace Huanying.Views;
 
@@ -86,6 +87,12 @@ public sealed partial class PlayerPage : Page
 
     /* 音量绑定系统主音量 */
     private SystemVolumeService? _systemVolume;
+
+    /// <summary>播放期间压住系统休眠与息屏（暂停 / 离开页面即归还）</summary>
+    private readonly KeepAwakeService _keepAwake = new();
+
+    /// <summary>诊断用：被子键处理函数接住的按键次数（HY_KEYTEST 自检）</summary>
+    private int _keysHandled;
 
     /// <summary>正在把外部音量写回滑块，避免 ValueChanged 又反过来写系统音量</summary>
     private bool _applyingVolume;
@@ -172,6 +179,10 @@ public sealed partial class PlayerPage : Page
         EpisodeList.ItemsSource = args.Episodes;
         TitleText.Text = string.IsNullOrWhiteSpace(args.VodName) ? args.Title : args.VodName;
 
+        // 焦点收在播放页自己身上：播放器里的按钮 / 滑块都不参与焦点，
+        // 于是 ← → 不会去挪侧边栏或别的控件，空格也不会去「点」上一次点过的按钮。
+        Loaded += (_, _) => Focus(FocusState.Programmatic);
+
         _tickTimer.Start();
         PlayCurrent();
     }
@@ -184,6 +195,9 @@ public sealed partial class PlayerPage : Page
         _hideTimer.Stop();
         _nextTimer.Stop();
         _hintTimer.Stop();
+
+        // 离开播放页：把休眠 / 息屏策略交还系统
+        _keepAwake.Release();
 
         RestorePresenter();
 
@@ -266,6 +280,7 @@ public sealed partial class PlayerPage : Page
 
         _desiredPlaying = true;
         _mediaPlayer.Play();
+        SyncKeepAwake();
 
         TitleText.Text = string.IsNullOrWhiteSpace(_args.VodName) ? _args.Title : _args.VodName;
         SubtitleText.Text = $"{episode.Name} · 第 {_index + 1}/{_args.Episodes.Count} 集";
@@ -300,11 +315,20 @@ public sealed partial class PlayerPage : Page
     {
         if (_mediaPlayer == null || _session == null) return;
 
-        if (_session.PlaybackState == MediaPlaybackState.Playing) _mediaPlayer.Pause();
-        else _mediaPlayer.Play();
+        // 明确记下意图：调用 Play() 后 PlaybackState 不保证立刻变 Playing，
+        // 直接读状态会把「刚点了播放」当成暂停。
+        if (_session.PlaybackState == MediaPlaybackState.Playing)
+        {
+            _mediaPlayer.Pause();
+            _desiredPlaying = false;
+        }
+        else
+        {
+            _mediaPlayer.Play();
+            _desiredPlaying = true;
+        }
 
-        _desiredPlaying = _session.PlaybackState == MediaPlaybackState.Playing;
-
+        SyncKeepAwake();
         ShowControls();
         UpdatePlayStateUi();
     }
@@ -332,6 +356,25 @@ public sealed partial class PlayerPage : Page
 
         _session.Position = TimeSpan.FromSeconds(Math.Clamp(seconds, 0, duration - 0.5));
         ShowControls();
+    }
+
+    /* ================= 防休眠 / 防息屏 ================= */
+
+    /// <summary>
+    /// 只要「用户想看」就压住休眠：播放中、打开中、缓冲中都算。
+    /// 暂停 / 播完 / 出错 / 离开页面时归还，把休眠策略交回系统。
+    /// </summary>
+    private void SyncKeepAwake()
+    {
+        var state = _session?.PlaybackState ?? MediaPlaybackState.None;
+
+        var wantAwake = _desiredPlaying
+                        && state is MediaPlaybackState.Playing
+                            or MediaPlaybackState.Opening
+                            or MediaPlaybackState.Buffering;
+
+        if (wantAwake) _keepAwake.Acquire();
+        else _keepAwake.Release();
     }
 
     /* ================= 音量（绑定系统主音量） ================= */
@@ -506,6 +549,9 @@ public sealed partial class PlayerPage : Page
         OnUi(() =>
         {
             UpdatePlayStateUi();
+
+            // 播放 → 压住休眠；暂停 / 播完 → 交还
+            SyncKeepAwake();
 
             if (sender.PlaybackState == MediaPlaybackState.Playing)
             {
@@ -1463,33 +1509,19 @@ public sealed partial class PlayerPage : Page
     private void Space_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
         args.Handled = true;
-
-        if (_mediaPlayer == null || _session == null) return;
-
-        // 空格 = 暂停 / 继续：播放中按一下暂停，暂停中按一下继续
-        if (_session.PlaybackState == MediaPlaybackState.Playing)
-        {
-            _mediaPlayer.Pause();
-            _desiredPlaying = false;
-        }
-        else
-        {
-            _mediaPlayer.Play();
-            _desiredPlaying = true;
-        }
-
-        ShowControls();
-        UpdatePlayStateUi();
+        TogglePlayPause();
     }
 
     private void SeekBack_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
+        _keysHandled++;
         SeekBy(-5);
         args.Handled = true;
     }
 
     private void SeekForward_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
+        _keysHandled++;
         SeekBy(5);
         args.Handled = true;
     }
@@ -1521,7 +1553,14 @@ public sealed partial class PlayerPage : Page
     private void Escape_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
         args.Handled = true;
+        HandleEscape();
+    }
 
+    /// <summary>
+    /// Esc 的逐级退出：先关信息面板，再关选集抽屉，再退全屏 / 画中画，最后返回上一页。
+    /// </summary>
+    private void HandleEscape()
+    {
         if (InfoPanel.Visibility == Visibility.Visible)
         {
             InfoPanel.Visibility = Visibility.Collapsed;
@@ -1542,7 +1581,66 @@ public sealed partial class PlayerPage : Page
             return;
         }
 
-        Back_Click(sender, new RoutedEventArgs());
+        Back_Click(this, new RoutedEventArgs());
+    }
+
+    /// <summary>
+    /// 播放器的全部快捷键都在页面根部拦截。
+    ///
+    /// 用 <c>PreviewKeyDown</c>（隧道事件，从根往下走）而不是只在 Page 上挂
+    /// <see cref="KeyboardAccelerator"/>：加速键只有在焦点元素**没处理**该按键时才会被调用，
+    /// 所以焦点一旦停在进度条 / 音量条 / 选集列表上，← → 就被它们吃掉——
+    /// 要么没快进快退，要么顺手把音量、进度改了一格，甚至把焦点挪到别的控件上。
+    /// 现在在根部先拦下来并标 Handled，这些控件压根收不到方向键，只会快进 / 快退。
+    /// </summary>
+    private void Root_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        // 万一将来页面里出现输入框，打字时不要劫持按键
+        if (FocusManager.GetFocusedElement(XamlRoot) is TextBox) return;
+
+        if (!HandleShortcut(e.Key)) return;
+
+        _keysHandled++;
+        e.Handled = true;
+    }
+
+    /// <summary>按键 → 动作。返回 false 表示这个键不归播放器管，交给系统。</summary>
+    private bool HandleShortcut(VirtualKey key)
+    {
+        switch (key)
+        {
+            case VirtualKey.Space:
+                TogglePlayPause();
+                break;
+            case VirtualKey.Left:
+                SeekBy(-5);
+                break;
+            case VirtualKey.Right:
+                SeekBy(5);
+                break;
+            case VirtualKey.Up:
+                AdjustVolume(0.05);
+                break;
+            case VirtualKey.Down:
+                AdjustVolume(-0.05);
+                break;
+            case VirtualKey.F:
+                ToggleFullScreen();
+                break;
+            case VirtualKey.M:
+                ToggleMute();
+                break;
+            case VirtualKey.I:
+                ToggleInfoPanel();
+                break;
+            case VirtualKey.Escape:
+                HandleEscape();
+                break;
+            default:
+                return false;
+        }
+
+        return true;
     }
 
     /* ================= 辅助 ================= */
@@ -1565,7 +1663,33 @@ public sealed partial class PlayerPage : Page
     /// <summary>诊断用：全屏 / 外壳 / 音量状态</summary>
     internal string DebugChromeState() =>
         $"fullscreen={_isFullScreen} pip={_isPip} shellChromeHidden={FindShell()?.IsChromeHidden} " +
-        $"volume={VolumePercent:0}% systemVolume={_systemVolume?.IsAvailable == true}";
+        $"volume={VolumePercent:0}% systemVolume={_systemVolume?.IsAvailable == true} keepAwake={_keepAwake.IsActive}";
+
+    /// <summary>诊断用：手动申请 / 归还常亮，返回状态（HY_AWAKE=1 自检）</summary>
+    internal string DebugKeepAwake(bool on)
+    {
+        if (on) _keepAwake.Acquire();
+        else _keepAwake.Release();
+
+        return $"keepAwake={_keepAwake.IsActive} desiredPlaying={_desiredPlaying} " +
+               $"state={_session?.PlaybackState.ToString() ?? "no-session"}";
+    }
+
+    /// <summary>诊断用：直接走一遍快捷键映射（HY_KEYTEST=1 自检，不依赖真实键盘焦点）</summary>
+    internal string DebugShortcuts()
+    {
+        var before = VolumePercent;
+        var parts = new List<string>();
+
+        foreach (var key in new[] { VirtualKey.Left, VirtualKey.Right, VirtualKey.Up, VirtualKey.Down, VirtualKey.Space, VirtualKey.Q })
+        {
+            parts.Add($"{key}={HandleShortcut(key)}");
+        }
+
+        return $"{string.Join(" ", parts)} volumeBefore={before:0}% volumeAfter={VolumePercent:0}% " +
+               $"state={_session?.PlaybackState.ToString() ?? "no-session"} desiredPlaying={_desiredPlaying} " +
+               $"focus={FocusManager.GetFocusedElement(XamlRoot)?.GetType().Name ?? "-"}";
+    }
 
     /// <summary>诊断用：供 HY_NAV 自检读取当前播放状态</summary>
     internal string DebugState()
@@ -1577,7 +1701,9 @@ public sealed partial class PlayerPage : Page
 
         return $"vod={_args?.VodId ?? 0} state={state} pos={position} dur={duration} index={_index + 1}/{_args?.Episodes.Count ?? 0} " +
                $"resumedFrom={_resumedFrom:0}s video={_videoProps?.Width ?? 0}x{_videoProps?.Height ?? 0} " +
-               $"codec={_videoProps?.Subtype ?? "-"} audio={_audioProps?.Subtype ?? "-"} err={error}";
+               $"codec={_videoProps?.Subtype ?? "-"} audio={_audioProps?.Subtype ?? "-"} err={error} " +
+               $"keys={_keysHandled} panel={EpisodePanel.Visibility} keepAwake={_keepAwake.IsActive} " +
+               $"focus={FocusManager.GetFocusedElement(XamlRoot)?.GetType().Name ?? "-"}";
     }
 
     /// <summary>诊断用：打开「视频信息」面板并返回面板文本（供 HY_NAV 自检）</summary>

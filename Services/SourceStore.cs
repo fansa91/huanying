@@ -75,6 +75,47 @@ public sealed class SourceStore
         return source;
     }
 
+    /// <summary>
+    /// 订阅导入：把订阅里的源并入列表，同地址的跳过。
+    /// 列表原本是空的，第一个导入的源自动成为当前源。
+    /// </summary>
+    /// <returns>新增数量、跳过（已存在）数量</returns>
+    public (int Added, int Skipped) Import(IEnumerable<SubscriptionEntry> entries, string subscriptionUrl)
+    {
+        var added = 0;
+        var skipped = 0;
+        var subscriptionHost = HostOf(subscriptionUrl);
+        var hadActive = Active != null;
+
+        foreach (var entry in entries)
+        {
+            var existing = Items.FirstOrDefault(s => SameUrl(s.Url, entry.Url));
+            if (existing != null)
+            {
+                // 手动加过的同地址源：顺手补上订阅来源，之后也能跟着订阅更新
+                if (string.IsNullOrEmpty(existing.SubUrl)) existing.SubUrl = subscriptionUrl;
+                skipped++;
+                continue;
+            }
+
+            Items.Add(new VodSource
+            {
+                Name = string.IsNullOrWhiteSpace(entry.Name) ? HostOf(entry.Url) : entry.Name.Trim(),
+                Url = Normalize(entry.Url),
+                Note = $"订阅：{subscriptionHost}",
+                SubUrl = subscriptionUrl
+            });
+
+            added++;
+        }
+
+        if (added > 0 && !hadActive) SetActiveInternal(Items[0]);
+        else Persist();
+
+        RaiseActiveChanged();
+        return (added, skipped);
+    }
+
     public void Update(VodSource source, string name, string url, string note)
     {
         source.Name = string.IsNullOrWhiteSpace(name) ? HostOf(url) : name.Trim();

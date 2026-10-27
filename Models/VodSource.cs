@@ -26,6 +26,12 @@ public sealed class VodSource : INotifyPropertyChanged
     /// <summary>备注，例如「需开启 SNI 静默回退」</summary>
     public string Note { get; set; } = string.Empty;
 
+    /// <summary>
+    /// 来源订阅链接。非空表示这条源是从订阅导入的，可在源管理里「更新订阅」按订阅内容刷新名称 / 地址；
+    /// 手动添加的源为空串。
+    /// </summary>
+    public string SubUrl { get; set; } = string.Empty;
+
     /// <summary>内置源（只允许改地址，不允许删除）</summary>
     public bool BuiltIn { get; set; }
 

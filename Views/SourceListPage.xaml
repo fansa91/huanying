@@ -50,6 +50,7 @@
         <Grid Grid.Row="1" ColumnSpacing="12" Margin="0,0,0,14">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
@@ -63,7 +64,16 @@
                 </StackPanel>
             </Button>
 
-            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2" Margin="4,0,0,0">
+            <Button Grid.Column="1"
+                    Click="ImportSubscription_Click"
+                    ToolTipService.ToolTip="从一个订阅链接批量导入视频源">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE896;" FontSize="13" />
+                    <TextBlock Text="订阅导入" FontSize="13" />
+                </StackPanel>
+            </Button>
+
+            <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2" Margin="4,0,0,0">
                 <TextBlock x:Name="ActiveSourceText"
                            FontSize="13"
                            Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
@@ -73,7 +83,7 @@
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
 
-            <Button Grid.Column="2"
+            <Button Grid.Column="3"
                     Content="全部测试"
                     FontSize="12"
                     Click="TestAll_Click" />
@@ -174,6 +184,7 @@
                                         <Button.Flyout>
                                             <MenuFlyout Placement="BottomEdgeAlignedRight">
                                                 <MenuFlyoutItem Text="编辑" Click="EditSource_Click" Tag="{Binding}" />
+                                                <MenuFlyoutItem Text="更新订阅" Click="RefreshSubscription_Click" Tag="{Binding}" />
                                                 <MenuFlyoutItem Text="复制地址" Click="CopySource_Click" Tag="{Binding}" />
                                                 <MenuFlyoutSeparator />
                                                 <MenuFlyoutItem Text="删除" Click="DeleteSource_Click" Tag="{Binding}" />

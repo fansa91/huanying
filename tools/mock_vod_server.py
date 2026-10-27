@@ -110,6 +110,14 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_text(self, text):
+        body = text.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def send_file(self, path, ctype="image/jpeg"):
         try:
             with open(path, "rb") as f:
@@ -132,6 +140,25 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/posters/"):
             name = os.path.basename(path)
             self.send_file(os.path.join(POSTERS, name))
+            return
+
+        # 订阅链接（自检用）：JSON 数组，其中一条地址重复，应被去重跳过
+        if path.rstrip("/") == "/sub.json":
+            self.send_json([
+                {"name": "示例源 A", "api": f"{BASE}/api.php/provide/vod"},
+                {"name": "示例源 B", "api": "https://example.org/api.php/provide/vod"},
+                {"name": "示例源 A 副本", "api": f"{BASE}/api.php/provide/vod"},
+            ])
+            return
+
+        # 订阅链接（自检用）：纯文本，一行一条，带注释与 "名称,地址" 写法
+        if path.rstrip("/") == "/sub.txt":
+            self.send_text(
+                "# 订阅示例：一行一个接口地址\n"
+                "# 也可以用「名称,地址」的写法\n"
+                f"{BASE}/api.php/provide/vod\n"
+                "示例源 C,https://example.com/api.php/provide/vod\n"
+            )
             return
 
         if path.rstrip("/") == "/api.php/provide/vod":

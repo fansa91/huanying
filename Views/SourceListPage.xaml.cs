@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Windows.ApplicationModel.DataTransfer;
 
@@ -133,6 +134,138 @@ public sealed partial class SourceListPage : Page
         }
     }
 
+    /* ================= 订阅 ================= */
+
+    private async void ImportSubscription_Click(object sender, RoutedEventArgs e)
+    {
+        var url = await ShowSubscriptionDialogAsync();
+        if (url == null) return;
+
+        ShowNotice("正在读取订阅", url, InfoBarSeverity.Informational);
+
+        try
+        {
+            var entries = await SubscriptionService.FetchAsync(url);
+
+            if (entries.Count == 0)
+            {
+                ShowNotice("订阅里没有可用的源",
+                    "链接打开了，但没解析出接口地址。支持 JSON 数组、每行一个地址、以及 Base64 编码的列表。",
+                    InfoBarSeverity.Warning);
+                return;
+            }
+
+            var (added, skipped) = AppServices.Sources.Import(entries, url);
+            RefreshHeader();
+
+            var message = $"订阅共 {entries.Count} 条，新增 {added} 个源";
+            if (skipped > 0) message += $"，跳过 {skipped} 个已存在的地址";
+
+            ShowNotice(added > 0 ? "订阅导入完成" : "没有新增源", message + "。",
+                added > 0 ? InfoBarSeverity.Success : InfoBarSeverity.Informational);
+        }
+        catch (Exception ex)
+        {
+            ShowNotice("订阅读取失败", FirstLine(ex.Message), InfoBarSeverity.Error);
+        }
+    }
+
+    /// <summary>按订阅内容刷新单个源（名称 / 地址以订阅为准）</summary>
+    private async void RefreshSubscription_Click(object sender, RoutedEventArgs e)
+    {
+        if (ResolveSource(sender) is not { } source) return;
+
+        if (string.IsNullOrWhiteSpace(source.SubUrl))
+        {
+            ShowNotice("不是订阅源", "这个源是手动添加的，没有关联订阅链接。", InfoBarSeverity.Warning);
+            return;
+        }
+
+        ShowNotice("正在更新订阅", source.SubUrl, InfoBarSeverity.Informational);
+
+        try
+        {
+            var entries = await SubscriptionService.FetchAsync(source.SubUrl);
+            var match = entries.FirstOrDefault(x => SameUrl(x.Url, source.Url));
+
+            if (match == null)
+            {
+                ShowNotice("订阅里已没有这个源",
+                    $"当前订阅已不包含 {source.Url}，可能是订阅内容变了。",
+                    InfoBarSeverity.Warning);
+                return;
+            }
+
+            AppServices.Sources.Update(
+                source,
+                string.IsNullOrWhiteSpace(match.Name) ? source.Name : match.Name,
+                source.Url,
+                source.Note);
+
+            ShowNotice("已更新", $"「{source.Name}」已按订阅内容同步。", InfoBarSeverity.Success);
+        }
+        catch (Exception ex)
+        {
+            ShowNotice("订阅读取失败", FirstLine(ex.Message), InfoBarSeverity.Error);
+        }
+    }
+
+    private async Task<string?> ShowSubscriptionDialogAsync()
+    {
+        var urlBox = new TextBox
+        {
+            Header = "订阅链接",
+            PlaceholderText = "https://example.com/sources.json"
+        };
+
+        var hint = new TextBlock
+        {
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Text = "支持 JSON 数组（name + api/url）、每行一个接口地址、以及 Base64 编码的列表。"
+                 + "已经在列表里的地址会自动跳过，不会重复添加。"
+        };
+
+        var error = new TextBlock
+        {
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(Microsoft.UI.Colors.OrangeRed),
+            Visibility = Visibility.Collapsed
+        };
+
+        var panel = new StackPanel { Spacing = 12, Width = 460 };
+        panel.Children.Add(urlBox);
+        panel.Children.Add(hint);
+        panel.Children.Add(error);
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "订阅导入",
+            Content = panel,
+            PrimaryButtonText = "导入",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary
+        };
+
+        while (true)
+        {
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
+
+            var text = urlBox.Text?.Trim() ?? string.Empty;
+            if (!Uri.TryCreate(text, UriKind.Absolute, out var parsed) ||
+                (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps))
+            {
+                error.Text = "订阅链接需要以 http:// 或 https:// 开头。";
+                error.Visibility = Visibility.Visible;
+                continue;
+            }
+
+            return text;
+        }
+    }
+
     /* ================= 测试 ================= */
 
     private async void TestOne_Click(object sender, RoutedEventArgs e)
@@ -238,6 +371,16 @@ public sealed partial class SourceListPage : Page
         }
 
         return null;
+    }
+
+    private static bool SameUrl(string a, string b) =>
+        string.Equals((a ?? string.Empty).Trim().TrimEnd('/'), (b ?? string.Empty).Trim().TrimEnd('/'),
+            StringComparison.OrdinalIgnoreCase);
+
+    private static string FirstLine(string text)
+    {
+        var line = (text ?? string.Empty).Split('\n')[0].Trim();
+        return line.Length > 110 ? line[..110] + "…" : line;
     }
 
     /// <summary>诊断用：供 HY_NAV / HY_SMOKE 读取源数量</summary>

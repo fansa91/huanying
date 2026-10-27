@@ -34,14 +34,19 @@
 - **音量绑定系统音量** —— 滑块 / 拖动 / 静音键改的都是系统主音量（Core Audio `IAudioEndpointVolume`），
   键盘音量键、任务栏滑块、系统音量弹窗与界面实时互相跟随
 - **全屏不含侧边栏** —— 进全屏自动收掉左侧导航与页头，画面真正铺满；退出全屏原样还原
-- 快捷键 `Space`（暂停 / 继续）/ `←` `→` / `↑` `↓` / `F` / `M` / `I` / `Esc`；控制栏按钮不抢焦点，
-  按下空格永远是暂停，不会变成"再点一次上次点过的按钮"
+- **播放时不休眠、不息屏** —— 播放 / 缓冲期间用 `SetThreadExecutionState` 同时申请「系统不休眠」与
+  「显示器常亮」，暂停、播完、离开播放页立即归还给系统
+- 快捷键 `Space`（暂停 / 继续）/ `←` `→`（快退 / 快进 5 秒）/ `↑` `↓` / `F` / `M` / `I` / `Esc`；
+  焦点始终收在播放页，控制栏按钮与滑块都不接受焦点，所以方向键只做快进快退，
+  不会跑去改音量、挪进度或把焦点甩到别的控件上
 - 倍速 0.5–2.0×、画中画、选集抽屉、下一集 5 秒倒计时自动连播、断点续播
 - **视频信息面板** —— 分辨率、编码、帧率、码率、音频布局、缓冲区间、解码链路，一眼看清当前流用了什么
 
 **管理**
 
 - **多源管理** —— 增删改查、连通性测试、一键切换，切换后首页立即换数据
+- **订阅导入** —— 一个订阅链接批量添加源：支持 JSON 数组（`name` + `api`/`url`）、每行一个地址、
+  以及 Base64 编码的列表；重复地址自动跳过，导入的源可随时「更新订阅」按订阅内容刷新
 - 收藏 / 观看历史 / 播放进度本地持久化
 - 设置项：自动连播、记忆进度、默认清晰度、主题、海报尺寸、默认视图、SNI 回退开关
 
@@ -136,8 +141,14 @@ dotnet publish Huanying.csproj -c Release -r win-x64 \
 - 自定义类型不能直接写在 `App.xaml` 里，必须放独立的 `ResourceDictionary`，否则报 WMC0001
 - 挂 `KeyboardAccelerator` 的元素默认会把加速键做成**悬停提示**（鼠标移上去冒出一条「空格」气泡）；
   不想要就设 `KeyboardAcceleratorPlacementMode="Hidden"`，快捷键照样能用
-- 播放器按钮必须 `IsTabStop="False"`，否则点过某个按钮后按空格会**重新点它**（比如又把全屏切回去），
-  而不是暂停
+- 播放器按钮必须 `IsTabStop="False"` + `AllowFocusOnInteraction="False"`，否则点过某个按钮后按空格会
+  **重新点它**（比如又把全屏切回去），而不是暂停
+- 快捷键不能只靠 `KeyboardAccelerator`：加速键只在焦点元素**没处理**该按键时才会被调用，焦点一旦
+  落到进度条 / 音量条 / 选集列表上，`←` `→` 就被它们吃掉（进度跳一格、音量改一格，或者焦点被挪走）。
+  现在播放页 `IsTabStop="True"` 并在 `Loaded` 时 `Focus()` 自己，播放器内所有按钮与滑块都不接受焦点，
+  再加上根部 `PreviewKeyDown` 抢先拦截并 `Handled = true`，方向键只做快进快退
+- 防息屏要用 `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED)`：
+  `DisplayRequest` 只挡息屏不挡系统睡眠，而且这个 API 是**按线程**生效，必须在 UI 线程调用
 - 音量走系统主音量后，`MediaPlayer.Volume` 要固定在 1，不然两边各降一半；`IAudioEndpointVolume`
   的回调在 COM 线程上触发，回写界面必须切回 UI 线程
 - `ThemeResource` 只能用真实存在的键；写错（例如 `FillColorAlterativeBaseBrush`）会让应用启动即崩 `0xC000027B`
@@ -167,6 +178,9 @@ dotnet publish Huanying.csproj -c Release -r win-x64 \
 | `HY_INFO=1` | 播放页打开「视频信息」面板并输出其内容 |
 | `HY_FS=1` | 播放页切一次全屏、截图、再还原，并打印外壳（侧边栏）收起状态 |
 | `HY_VOL=<0-100>` | 把音量设到指定百分比再回读，验证系统音量绑定是否生效 |
+| `HY_AWAKE=1` | 申请一次「不休眠 / 不息屏」再归还，验证常亮接口是否生效 |
+| `HY_KEYTEST=1` | 逐个走一遍 `←` `→` `↑` `↓` `空格` 与一个无关键，打印各自的处理结果 |
+| `HY_SUB=<订阅链接>` | 启动时导入一次订阅并打印解析 / 去重结果 |
 | `HY_SHOT=<路径>` | 用 `RenderTargetBitmap` 把窗口截成 PNG |
 
 `tools/` 下还有三个脚本，用于生成图标与 README 样板图：
@@ -175,6 +189,7 @@ dotnet publish Huanying.csproj -c Release -r win-x64 \
 python tools/make_icon.py           # Assets/Huanying.ico + branding/icon-1024.png
 python tools/make_demo_posters.py   # 生成 30 张虚构演示海报
 python tools/mock_vod_server.py     # 本地演示接口（127.0.0.1:8899）
+                                    # 另带 /sub.json 与 /sub.txt 两个订阅样例，验证订阅导入用
 ```
 
 配合 `HY_SHOT` 与本地演示接口，就能复现 README 里的全部截图。
@@ -190,6 +205,7 @@ Huanying/
 ├─ Controls/                MasonryLayout（瀑布流布局）、QueuedImage（队列图片控件）
 ├─ Models/                  VOD 数据模型、海报卡片、本地库、视频源
 ├─ Services/                VodApiService / ImageQueue / SourceStore / LibraryStore
+│                           SubscriptionService / SystemVolumeService / KeepAwakeService / AppInfo
 │                           AppSettings / HlsPlaylist / SniProbe / SystemVolumeService
 ├─ Converters/  Styles/     XAML 转换器与主题样式
 ├─ Assets/                  Huanying.ico、Huanying.png

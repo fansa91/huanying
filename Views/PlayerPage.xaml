@@ -7,6 +7,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
     Background="Black"
+    IsTabStop="True"
     KeyboardAcceleratorPlacementMode="Hidden">
 
     <!--
@@ -37,6 +38,7 @@
             <Setter Property="CornerRadius" Value="6" />
             <!-- 不参与焦点：否则点过「全屏」再按空格，会重新点一次这个按钮而不是暂停 -->
             <Setter Property="IsTabStop" Value="False" />
+            <Setter Property="AllowFocusOnInteraction" Value="False" />
         </Style>
 
         <Style x:Key="PlayerTextButton" TargetType="Button">
@@ -47,10 +49,11 @@
             <Setter Property="MinHeight" Value="0" />
             <Setter Property="CornerRadius" Value="6" />
             <Setter Property="IsTabStop" Value="False" />
+            <Setter Property="AllowFocusOnInteraction" Value="False" />
         </Style>
     </Page.Resources>
 
-    <Grid x:Name="Root" Background="Black">
+    <Grid x:Name="Root" Background="Black" PreviewKeyDown="Root_PreviewKeyDown">
 
         <!-- 视频画面 -->
         <controls:MediaPlayerElement x:Name="Player"
@@ -193,6 +196,7 @@
                     <Slider x:Name="ProgressSlider"
                             Grid.Column="1"
                             IsTabStop="False"
+                            AllowFocusOnInteraction="False"
                             Minimum="0"
                             Maximum="100"
                             StepFrequency="1"
@@ -245,6 +249,7 @@
                         <Slider x:Name="VolumeSlider"
                                 Width="92"
                                 IsTabStop="False"
+                                AllowFocusOnInteraction="False"
                                 Minimum="0"
                                 Maximum="100"
                                 Value="100"

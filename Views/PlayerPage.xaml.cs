@@ -9,6 +9,8 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Windows.ApplicationModel.DataTransfer;
@@ -53,6 +55,18 @@ public sealed partial class PlayerPage : Page
     private bool _controlsVisible = true;
     private bool _updatingSlider;
     private bool _isScrubbing;
+
+    /// <summary>当前影片的跳过片头 / 片尾设置（来自本地库）</summary>
+    private SkipEntry? _skipEntry;
+
+    /// <summary>当前加载的字幕轨（外挂字幕，自绘渲染）</summary>
+    private SubtitleTrack? _subtitleTrack;
+
+    /// <summary>字幕字号档位：0 小 / 1 中 / 2 大</summary>
+    private int _subtitleFontScale = 1;
+
+    /// <summary>当前播放地址（用于探测 m3u8 字幕轨）</summary>
+    private string _currentUrl = string.Empty;
 
     /// <summary>待跳转的秒数，MediaOpened 后应用一次（用于断点续播）</summary>
     private double _pendingSeek;
@@ -146,6 +160,10 @@ public sealed partial class PlayerPage : Page
 
         _args = args;
         _index = Math.Clamp(args.StartIndex, 0, args.Episodes.Count - 1);
+
+        // 跳过片头 / 片尾设置
+        _skipEntry = args.VodId > 0 ? LibraryStore.Current.GetSkip(args.VodId) : null;
+        UpdateSkipButtonVisibility();
 
         // 续播：显式传入优先，否则读本地记录（同一集才续播）
         if (args.ResumeSeconds > 3)
@@ -263,6 +281,11 @@ public sealed partial class PlayerPage : Page
         _playlistInfoUrl = null;
         _playlistTask = null;
 
+        // 切集时先清掉旧字幕，再探测新地址里的字幕轨
+        _currentUrl = episode.Url;
+        SetSubtitleTrack(null, string.Empty);
+        _ = ProbeHlsSubtitlesAsync(episode.Url);
+
         // 用 MediaPlaybackItem 包一层，才能拿到视频 / 音频轨道的编码参数（编解码器、帧率、码率）
         var mediaItem = new MediaPlaybackItem(MediaSource.CreateFromUri(uri));
         mediaItem.VideoTracksChanged += PlaybackItem_VideoTracksChanged;
@@ -289,6 +312,8 @@ public sealed partial class PlayerPage : Page
         NextButton.IsEnabled = _index + 1 < _args.Episodes.Count;
 
         SelectEpisodeInPanel();
+        SkipIntroButton.Visibility = Visibility.Collapsed;
+        SkipOutroButton.Visibility = Visibility.Collapsed;
         ShowControls();
         UpdatePlayStateUi();
     }
@@ -356,6 +381,316 @@ public sealed partial class PlayerPage : Page
 
         _session.Position = TimeSpan.FromSeconds(Math.Clamp(seconds, 0, duration - 0.5));
         ShowControls();
+    }
+
+    /* ================= 跳过片头 / 片尾 ================= */
+
+    /* ================= 字幕 ================= */
+
+    /// <summary>按当前播放位置刷新字幕显示</summary>
+    private void UpdateSubtitleDisplay(double position)
+    {
+        if (_subtitleTrack == null)
+        {
+            if (SubtitleOverlay.Visibility != Visibility.Collapsed)
+                SubtitleOverlay.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var text = _subtitleTrack.TextAt(position);
+
+        if (string.IsNullOrEmpty(text))
+        {
+            SubtitleOverlay.Visibility = Visibility.Collapsed;
+            SubtitleOverlayText.Text = string.Empty;
+            return;
+        }
+
+        SubtitleOverlayText.Text = text;
+        SubtitleOverlayText.FontSize = _subtitleFontScale switch
+        {
+            0 => 17,
+            2 => 24,
+            _ => 20
+        };
+        SubtitleOverlay.Visibility = Visibility.Visible;
+    }
+
+    private void SetSubtitleTrack(SubtitleTrack? track, string sourceName)
+    {
+        _subtitleTrack = track;
+
+        if (track == null || track.Count == 0)
+        {
+            SubtitleOverlay.Visibility = Visibility.Collapsed;
+            SubtitleOverlayText.Text = string.Empty;
+            SubtitleButtonText.Text = "字幕";
+            ShowHint("字幕已关闭");
+            return;
+        }
+
+        SubtitleButtonText.Text = string.IsNullOrWhiteSpace(sourceName) ? "字幕" : sourceName;
+        ShowHint($"已加载字幕：{track.Name}（{track.Count} 条）");
+    }
+
+    /// <summary>打开本地字幕文件（SRT / VTT）</summary>
+    private async void LoadSubtitleFile_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var picker = new Windows.Storage.Pickers.FileOpenPicker();
+            picker.FileTypeFilter.Add(".srt");
+            picker.FileTypeFilter.Add(".vtt");
+            picker.FileTypeFilter.Add(".txt");
+
+            // 非打包应用要用窗口句柄初始化，否则选择器拿不到 UI 线程
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+
+            var file = await picker.PickSingleFileAsync();
+            if (file == null) return;
+
+            var text = await File.ReadAllTextAsync(file.Path);
+            var track = SubtitleParser.Parse(text, file.Name);
+
+            if (track.Count == 0)
+            {
+                ShowHint("字幕文件里没有解析出内容");
+                return;
+            }
+
+            SetSubtitleTrack(track, track.Name);
+        }
+        catch (Exception ex)
+        {
+            ShowHint($"字幕加载失败：{FirstLine(ex.Message)}");
+        }
+    }
+
+    /// <summary>从字幕地址加载（SRT / VTT）</summary>
+    private async void LoadSubtitleUrl_Click(object sender, RoutedEventArgs e)
+    {
+        var input = new TextBox
+        {
+            PlaceholderText = "输入字幕文件地址（.srt / .vtt）",
+            Text = string.Empty
+        };
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "从地址加载字幕",
+            Content = input,
+            PrimaryButtonText = "加载",
+            CloseButtonText = "取消"
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+        var url = input.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(url)) return;
+
+        await LoadSubtitleFromUrlAsync(url, "远程字幕");
+    }
+
+    /// <summary>下载并加载字幕</summary>
+    private async Task LoadSubtitleFromUrlAsync(string url, string sourceName)
+    {
+        try
+        {
+            var content = await HlsPlaylist.FetchSubtitleAsync(url);
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                ShowHint("字幕地址没有返回内容");
+                return;
+            }
+
+            var track = SubtitleParser.Parse(content, sourceName);
+            if (track.Count == 0)
+            {
+                ShowHint("字幕内容里没有解析出条目");
+                return;
+            }
+
+            SetSubtitleTrack(track, sourceName);
+        }
+        catch (Exception ex)
+        {
+            ShowHint($"字幕加载失败：{FirstLine(ex.Message)}");
+        }
+    }
+
+    /// <summary>探测 m3u8 里声明的字幕轨，找到就自动加载第一条</summary>
+    private async Task ProbeHlsSubtitlesAsync(string mediaUrl)
+    {
+        if (string.IsNullOrWhiteSpace(mediaUrl) ||
+            !mediaUrl.Contains(".m3u8", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        try
+        {
+            var content = await HlsPlaylist.FetchSubtitleAsync(mediaUrl);
+            if (string.IsNullOrWhiteSpace(content)) return;
+
+            var tracks = HlsPlaylist.ParseSubtitleTracks(content);
+            if (tracks.Count == 0) return;
+
+            App.Log($"SUBTITLE TRACKS: {tracks.Count} 条 · {string.Join(", ", tracks.Select(t => t.DisplayName))}");
+
+            // 优先默认轨，其次第一条
+            var target = tracks.FirstOrDefault(t => t.IsDefault) ?? tracks[0];
+            var absolute = HlsPlaylist.ResolveUri(mediaUrl, target.Uri);
+
+            await LoadSubtitleFromUrlAsync(absolute, target.DisplayName);
+        }
+        catch (Exception ex)
+        {
+            App.Log($"SUBTITLE PROBE FAIL: {ex.GetType().Name} {ex.Message}");
+        }
+    }
+
+    private void CloseSubtitle_Click(object sender, RoutedEventArgs e)
+    {
+        SetSubtitleTrack(null, string.Empty);
+    }
+
+    /// <summary>C 键：字幕开关 / 字号循环（小 → 中 → 大）</summary>
+    private void ToggleSubtitle()
+    {
+        if (_subtitleTrack == null)
+        {
+            ShowHint("当前没有字幕，可用「字幕」按钮加载");
+            return;
+        }
+
+        _subtitleFontScale = (_subtitleFontScale + 1) % 3;
+
+        ShowHint(_subtitleFontScale switch
+        {
+            0 => "字幕字号：小",
+            2 => "字幕字号：大",
+            _ => "字幕字号：中"
+        });
+    }
+
+    /// <summary>取异常信息的第一行，过长的截断（给提示气泡用）</summary>
+    private static string FirstLine(string text)
+    {
+        var line = (text ?? string.Empty).Split('\n')[0].Trim();
+        return line.Length > 90 ? line[..90] + "…" : line;
+    }
+
+    private void SubtitleMenu_Opened(object sender, object e)
+    {
+        SubtitleCloseItem.IsEnabled = _subtitleTrack != null;
+    }
+
+    /// <summary>底部「跳过」按钮是否可用：该影片配置了片头或片尾才显示</summary>
+    private void UpdateSkipButtonVisibility()
+    {
+        var configured = _skipEntry is { IntroSeconds: > 0 } or { OutroSeconds: > 0 };
+        SkipButton.Visibility = configured ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>检测是否进入片头区域，显示「跳过片头」按钮</summary>
+    private void CheckSkipIntro(double position, double duration)
+    {
+        if (_skipEntry == null || _skipEntry.IntroSeconds <= 0)
+        {
+            SkipIntroButton.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        // 从第 1 秒起进入片头区域（避免续播时一进来就触发），片头结束 +2 秒缓冲
+        var introEnd = _skipEntry.IntroSeconds;
+        SkipIntroButton.Visibility =
+            position >= 1 && position <= introEnd + 2 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>检测是否进入片尾区域，显示「跳过片尾」按钮</summary>
+    private void CheckSkipOutro(double position, double duration)
+    {
+        if (_skipEntry == null || _skipEntry.OutroSeconds <= 0 || duration <= 0)
+        {
+            SkipOutroButton.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var outroStart = duration - _skipEntry.OutroSeconds;
+        SkipOutroButton.Visibility =
+            position >= outroStart - 2 && position < duration - 1
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+    }
+
+    private void SkipIntroNow_Click(object sender, RoutedEventArgs e)
+    {
+        if (_skipEntry == null || _skipEntry.IntroSeconds <= 0) return;
+
+        SeekTo(_skipEntry.IntroSeconds);
+        SkipIntroButton.Visibility = Visibility.Collapsed;
+        ShowHint("已跳过片头");
+    }
+
+    private void SkipOutroNow_Click(object sender, RoutedEventArgs e)
+    {
+        if (_skipEntry == null || _skipEntry.OutroSeconds <= 0 || _session == null) return;
+
+        var duration = _session.NaturalDuration.TotalSeconds;
+        if (duration <= 0) return;
+
+        SeekTo(Math.Max(0, duration - _skipEntry.OutroSeconds));
+        SkipOutroButton.Visibility = Visibility.Collapsed;
+        ShowHint("已跳过片尾");
+    }
+
+    private void SkipIntro_Click(object sender, RoutedEventArgs e) => SkipIntroNow_Click(sender, e);
+
+    private void SkipOutro_Click(object sender, RoutedEventArgs e) => SkipOutroNow_Click(sender, e);
+
+    /// <summary>打开详情页设置片头 / 片尾</summary>
+    private void OpenSkipSettings_Click(object sender, RoutedEventArgs e)
+    {
+        if (_args == null) return;
+
+        Frame.Navigate(typeof(ShowDetailPage), _args.VodId);
+    }
+
+    private void Skip_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        SkipByShortcut();
+        args.Handled = true;
+    }
+
+    private void Subtitle_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        ToggleSubtitle();
+        args.Handled = true;
+    }
+
+    /// <summary>J 键：在片头区域内跳过片头，在片尾区域内跳过片尾</summary>
+    private void SkipByShortcut()
+    {
+        if (_skipEntry == null || _session == null) return;
+
+        var position = _session.Position.TotalSeconds;
+        var duration = _session.NaturalDuration.TotalSeconds;
+
+        if (_skipEntry.IntroSeconds > 0 && position >= 1 && position <= _skipEntry.IntroSeconds + 2)
+        {
+            SeekTo(_skipEntry.IntroSeconds);
+            SkipIntroButton.Visibility = Visibility.Collapsed;
+            ShowHint("已跳过片头");
+        }
+        else if (_skipEntry.OutroSeconds > 0 && duration > 0 &&
+                 position >= duration - _skipEntry.OutroSeconds - 2 && position < duration - 1)
+        {
+            SeekTo(Math.Max(0, duration - _skipEntry.OutroSeconds));
+            SkipOutroButton.Visibility = Visibility.Collapsed;
+            ShowHint("已跳过片尾");
+        }
     }
 
     /* ================= 防休眠 / 防息屏 ================= */
@@ -654,6 +989,16 @@ public sealed partial class PlayerPage : Page
         }
 
         if (duration.TotalSeconds > 0) DurationText.Text = FormatTime(duration);
+
+        // 检测跳过片头 / 片尾
+        if (_skipEntry != null && _session.PlaybackState == MediaPlaybackState.Playing)
+        {
+            CheckSkipIntro(position.TotalSeconds, duration.TotalSeconds);
+            CheckSkipOutro(position.TotalSeconds, duration.TotalSeconds);
+        }
+
+        // 刷新字幕
+        UpdateSubtitleDisplay(position.TotalSeconds);
 
         if (_session.PlaybackState == MediaPlaybackState.Playing &&
             (DateTime.Now - _lastSaveAt).TotalSeconds >= 5)
@@ -1632,6 +1977,12 @@ public sealed partial class PlayerPage : Page
                 break;
             case VirtualKey.I:
                 ToggleInfoPanel();
+                break;
+            case VirtualKey.C:
+                ToggleSubtitle();
+                break;
+            case VirtualKey.J:
+                SkipByShortcut();
                 break;
             case VirtualKey.Escape:
                 HandleEscape();

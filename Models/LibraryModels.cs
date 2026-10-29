@@ -87,6 +87,18 @@ public sealed class HistoryEntry
     }
 }
 
+/// <summary>跳过片头 / 片尾设置（按影片持久化）</summary>
+public sealed class SkipEntry
+{
+    public int VodId { get; set; }
+
+    /// <summary>片头秒数，0 表示未启用</summary>
+    public double IntroSeconds { get; set; }
+
+    /// <summary>片尾秒数，0 表示未启用</summary>
+    public double OutroSeconds { get; set; }
+}
+
 /// <summary>海报占位渐变：按 vodId 稳定取色，避免同屏卡片颜色重复</summary>
 public static class PosterPalette
 {

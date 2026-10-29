@@ -17,7 +17,11 @@ from urllib.parse import urlparse, parse_qs
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 POSTERS = os.path.join(HERE, "posters")
-PORT = 8899
+
+# 端口可用 PORT 环境变量覆盖：起第二个实例即可验证「多源聚合搜索」
+#   PORT=8899 python tools/mock_vod_server.py
+#   PORT=8900 python tools/mock_vod_server.py
+PORT = int(os.environ.get("PORT", "8899"))
 BASE = f"http://127.0.0.1:{PORT}"
 
 TITLES = [

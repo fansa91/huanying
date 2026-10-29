@@ -38,8 +38,23 @@
             <StackPanel Orientation="Horizontal" Spacing="10">
                 <controls:AutoSuggestBox x:Name="SearchBox"
                                          PlaceholderText="搜索片名、演员（回车搜索）"
-                                         Width="380"
+                                         Width="320"
                                          QuerySubmitted="SearchBox_QuerySubmitted" />
+
+                <ToggleButton x:Name="AggregateToggle"
+                              Content="聚合搜索"
+                              MinWidth="88"
+                              Click="AggregateToggle_Click">
+                    <ToolTipService.ToolTip>
+                        <ToolTip Content="同时搜索多个视频源，合并结果" />
+                    </ToolTipService.ToolTip>
+                </ToggleButton>
+
+                <Button x:Name="AggregateSourceButton"
+                        Content="选择源"
+                        MinWidth="76"
+                        Visibility="Collapsed"
+                        Click="AggregateSourceButton_Click" />
 
                 <ToggleButton x:Name="GridToggle"
                               Content="瀑布流"
@@ -56,6 +71,24 @@
                            Margin="6,0,0,0"
                            FontSize="12"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+
+            <!-- 聚合搜索的源选择条 -->
+            <StackPanel x:Name="AggregateSourceBar"
+                        Orientation="Horizontal"
+                        Spacing="8"
+                        Visibility="Collapsed">
+                <TextBlock Text="参与搜索的源："
+                           FontSize="12"
+                           VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <StackPanel x:Name="AggregateSourceChips" Orientation="Horizontal" Spacing="8" />
+                <Button Content="全选"
+                        FontSize="12"
+                        Click="SelectAllSources_Click" />
+                <Button Content="仅当前源"
+                        FontSize="12"
+                        Click="SelectCurrentSource_Click" />
             </StackPanel>
         </StackPanel>
 
@@ -110,6 +143,24 @@
                                                            FontSize="10"
                                                            Foreground="White"
                                                            MaxLines="1" />
+                                            </Border>
+
+                                            <!-- 来源标注（仅聚合搜索结果显示） -->
+                                            <Border VerticalAlignment="Top"
+                                                    HorizontalAlignment="Right"
+                                                    Margin="8"
+                                                    Padding="6,2"
+                                                    CornerRadius="4"
+                                                    Background="#CC1B5E20"
+                                                    ToolTipService.ToolTip="{Binding SourceDetail}"
+                                                    Visibility="{Binding HasSource}">
+                                                <TextBlock Text="{Binding SourceLabel}"
+                                                           FontSize="10"
+                                                           Foreground="White"
+                                                           MaxLines="1"
+                                                           MaxWidth="118"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           TextWrapping="NoWrap" />
                                             </Border>
                                         </Grid>
 
@@ -169,6 +220,13 @@
                                            MaxLines="1"
                                            TextTrimming="CharacterEllipsis"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock Text="{Binding SourceLabel}"
+                                           FontSize="11"
+                                           MaxLines="1"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTipService.ToolTip="{Binding SourceDetail}"
+                                           Visibility="{Binding HasSource}"
+                                           Foreground="#FF2E7D32" />
                             </StackPanel>
 
                             <TextBlock Grid.Column="2"
@@ -274,15 +332,32 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
 
             <TextBlock x:Name="QueueText"
+                       Grid.Row="0"
                        Grid.Column="0"
                        VerticalAlignment="Center"
                        FontSize="11"
                        Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
 
+            <TextBlock x:Name="HintText"
+                       Grid.Row="1"
+                       Grid.Column="0"
+                       Margin="0,4,0,0"
+                       VerticalAlignment="Center"
+                       FontSize="12"
+                       TextWrapping="Wrap"
+                       Visibility="Collapsed"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
             <Button x:Name="LoadMoreButton"
+                    Grid.RowSpan="2"
                     Grid.Column="1"
+                    VerticalAlignment="Center"
                     Content="加载更多"
                     MinWidth="140"
                     Click="LoadMore_Click" />

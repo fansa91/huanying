@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
+using Huanying.Services;
 
 namespace Huanying.Models;
 
@@ -31,6 +33,15 @@ public sealed class PosterCard : INotifyPropertyChanged, IPosterAspectHost
         Item = item;
     }
 
+    /// <summary>聚合搜索命中：带上来源信息（普通列表结果为 null）</summary>
+    public PosterCard(AggregateSearchHit hit) : this(hit.Item)
+    {
+        SourceLabel = hit.SourceLabel;
+        SourceDetail = hit.SourceDetail;
+        SourceUrl = hit.SourceUrl;
+        SourceName = hit.SourceName;
+    }
+
     public VodItem Item { get; }
 
     public int Id => Item.Id;
@@ -42,6 +53,21 @@ public sealed class PosterCard : INotifyPropertyChanged, IPosterAspectHost
     public string RemarksText => Item.RemarksText;
 
     public string PicUrl => Item.Pic;
+
+    /// <summary>来源标注（普通列表为空）</summary>
+    public string SourceLabel { get; init; } = string.Empty;
+
+    /// <summary>完整来源列表（鼠标悬停提示用）</summary>
+    public string SourceDetail { get; init; } = string.Empty;
+
+    /// <summary>来源源的接口地址（普通列表为空）</summary>
+    public string SourceUrl { get; init; } = string.Empty;
+
+    /// <summary>来源源的名称（普通列表为空）</summary>
+    public string SourceName { get; init; } = string.Empty;
+
+    /// <summary>是否显示了来源角标</summary>
+    public bool HasSource => !string.IsNullOrWhiteSpace(SourceLabel);
 
     /// <summary>海报区高度 = 比例 × 当前列宽</summary>
     public double PosterHeight => Math.Round(_aspect * _columnWidth, 1);

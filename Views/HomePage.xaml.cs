@@ -39,6 +39,20 @@ public sealed partial class HomePage : Page
     private int _columnCount;
     private double _columnWidth = MinColumnWidth;
 
+    /* ---------- 聚合搜索 ---------- */
+
+    /// <summary>是否启用聚合搜索（同时查多个源）</summary>
+    private bool _aggregateEnabled;
+
+    /// <summary>参与聚合搜索的源 Id 集合（空 = 全部源）</summary>
+    private readonly HashSet<string> _aggregateSourceIds = new();
+
+    /// <summary>聚合搜索服务</summary>
+    private AggregateSearchService? _aggregateService;
+
+    /// <summary>当前聚合搜索是否正在进行</summary>
+    private bool _aggregating;
+
     public HomePage()
     {
         this.InitializeComponent();
@@ -75,6 +89,16 @@ public sealed partial class HomePage : Page
 
         await BuildCategoriesAsync();
         await LoadAsync(reset: true);
+
+        // 诊断用：HY_AGGTEST=关键词 时自动开启聚合搜索并跑一次，便于截图核对界面
+        if (Environment.GetEnvironmentVariable("HY_AGGTEST") is { Length: > 0 } aggKeyword)
+        {
+            AggregateToggle.IsChecked = true;
+            AggregateToggle_Click(AggregateToggle, new RoutedEventArgs());
+
+            SearchBox.Text = aggKeyword;
+            await RunAggregateSearchAsync(aggKeyword);
+        }
     }
 
     /* ================= 无源状态 ================= */
@@ -153,6 +177,199 @@ public sealed partial class HomePage : Page
         SearchBox.Text = string.Empty;
 
         await LoadAsync(reset: true);
+    }
+
+    /* ================= 聚合搜索 ================= */
+
+    /// <summary>开启 / 关闭聚合搜索</summary>
+    private void AggregateToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ToggleButton toggle) return;
+
+        _aggregateEnabled = toggle.IsChecked == true;
+
+        AggregateSourceButton.Visibility = _aggregateEnabled ? Visibility.Visible : Visibility.Collapsed;
+        AggregateSourceBar.Visibility = _aggregateEnabled ? Visibility.Visible : Visibility.Collapsed;
+
+        if (_aggregateEnabled)
+        {
+            BuildAggregateSourceChips();
+
+            // 没勾关键词时给个提示，让用户知道开关生效了
+            if (string.IsNullOrWhiteSpace(_keyword))
+            {
+                ShowHint("聚合搜索已开启，输入关键词后回车即可同时搜索多个源");
+            }
+        }
+    }
+
+    /// <summary>构建参与搜索的源选择胶囊</summary>
+    private void BuildAggregateSourceChips()
+    {
+        AggregateSourceChips.Children.Clear();
+
+        var sources = AppServices.Sources.Items.Where(s => !string.IsNullOrWhiteSpace(s.Url)).ToList();
+        if (sources.Count == 0) return;
+
+        // 默认全选：用户开启聚合搜索后直接能用
+        if (_aggregateSourceIds.Count == 0)
+        {
+            foreach (var source in sources) _aggregateSourceIds.Add(source.Id);
+        }
+
+        foreach (var source in sources)
+        {
+            var sourceId = source.Id;
+            var chip = new ToggleButton
+            {
+                Content = source.Name,
+                IsChecked = _aggregateSourceIds.Contains(sourceId),
+                Style = (Style)Resources["CategoryPillStyle"]
+            };
+            chip.Click += (_, _) =>
+            {
+                if (chip.IsChecked == true) _aggregateSourceIds.Add(sourceId);
+                else _aggregateSourceIds.Remove(sourceId);
+            };
+            AggregateSourceChips.Children.Add(chip);
+        }
+    }
+
+    private void SelectAllSources_Click(object sender, RoutedEventArgs e)
+    {
+        _aggregateSourceIds.Clear();
+        foreach (var source in AppServices.Sources.Items)
+        {
+            if (!string.IsNullOrWhiteSpace(source.Url)) _aggregateSourceIds.Add(source.Id);
+        }
+        BuildAggregateSourceChips();
+    }
+
+    private void SelectCurrentSource_Click(object sender, RoutedEventArgs e)
+    {
+        _aggregateSourceIds.Clear();
+        var active = AppServices.Sources.Active;
+        if (active != null) _aggregateSourceIds.Add(active.Id);
+        BuildAggregateSourceChips();
+    }
+
+    /// <summary>打开「选择源」对话框</summary>
+    private async void AggregateSourceButton_Click(object sender, RoutedEventArgs e)
+    {
+        BuildAggregateSourceChips();
+
+        var sources = AppServices.Sources.Items.Where(s => !string.IsNullOrWhiteSpace(s.Url)).ToList();
+        if (sources.Count == 0)
+        {
+            ShowHint("还没有可用的视频源，请先到「源管理」添加");
+            return;
+        }
+
+        var checkboxes = new List<Microsoft.UI.Xaml.Controls.CheckBox>();
+        var panel = new StackPanel { Spacing = 8 };
+
+        foreach (var source in sources)
+        {
+            var checkBox = new Microsoft.UI.Xaml.Controls.CheckBox
+            {
+                Content = source.Name,
+                IsChecked = _aggregateSourceIds.Contains(source.Id)
+            };
+            checkboxes.Add(checkBox);
+            panel.Children.Add(checkBox);
+        }
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "选择参与聚合搜索的源",
+            Content = panel,
+            PrimaryButtonText = "确定",
+            CloseButtonText = "取消"
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+        _aggregateSourceIds.Clear();
+        foreach (var checkBox in checkboxes)
+        {
+            if (checkBox.IsChecked == true && checkBox.Content is string name)
+            {
+                var source = sources.FirstOrDefault(s => s.Name == name);
+                if (source != null) _aggregateSourceIds.Add(source.Id);
+            }
+        }
+
+        // 一个都没选就退回全部源，免得搜索无声无息
+        if (_aggregateSourceIds.Count == 0)
+        {
+            foreach (var source in sources) _aggregateSourceIds.Add(source.Id);
+        }
+
+        BuildAggregateSourceChips();
+        ShowHint($"聚合搜索将使用 {_aggregateSourceIds.Count} 个源");
+    }
+
+    /// <summary>执行聚合搜索</summary>
+    private async Task RunAggregateSearchAsync(string keyword)
+    {
+        if (_aggregating) return;
+
+        _aggregating = true;
+        SetLoadingState(true);
+
+        try
+        {
+            _aggregateService ??= new AggregateSearchService(AppServices.Settings);
+
+            var sources = AppServices.Sources.Items
+                .Where(s => !string.IsNullOrWhiteSpace(s.Url))
+                .Where(s => _aggregateSourceIds.Count == 0 || _aggregateSourceIds.Contains(s.Id))
+                .ToList();
+
+            var result = await _aggregateService.SearchAsync(keyword, sources);
+
+            _cards.Clear();
+            _seenIds.Clear();
+
+            UpdateColumnMetrics();
+
+            foreach (var hit in result.Hits)
+            {
+                var card = new PosterCard(hit) { ColumnWidth = _columnWidth };
+                _cards.Add(card);
+            }
+
+            _total = result.Hits.Count;
+
+            ErrorPanel.Visibility = Visibility.Collapsed;
+
+            // 有源失败时把情况说清楚
+            if (result.FailedCount > 0)
+            {
+                var failed = result.SourceResults
+                    .Where(r => !r.Success)
+                    .Select(r => r.SourceName)
+                    .ToList();
+
+                ShowHint($"{result.SuccessCount}/{result.SourceCount} 个源返回成功，" +
+                         $"合并 {result.RawCount} 条为 {result.Hits.Count} 部；失败：{string.Join("、", failed)}");
+            }
+            else
+            {
+                ShowHint($"{result.SourceCount} 个源合并 {result.RawCount} 条，得到 {result.Hits.Count} 部");
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex.Message);
+        }
+        finally
+        {
+            _aggregating = false;
+            SetLoadingState(false);
+            UpdateState();
+        }
     }
 
     /* ================= 数据加载 ================= */
@@ -285,6 +502,14 @@ public sealed partial class HomePage : Page
     private async void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
     {
         _keyword = args.QueryText?.Trim() ?? string.Empty;
+
+        // 聚合搜索：并发查多个源，合并去重
+        if (_aggregateEnabled && !string.IsNullOrWhiteSpace(_keyword))
+        {
+            await RunAggregateSearchAsync(_keyword);
+            return;
+        }
+
         await LoadAsync(reset: true);
     }
 
@@ -317,7 +542,7 @@ public sealed partial class HomePage : Page
     {
         if (sender is FrameworkElement element && element.DataContext is PosterCard card && card.Id > 0)
         {
-            Frame.Navigate(typeof(ShowDetailPage), card.Id);
+            NavigateToDetail(card);
         }
     }
 
@@ -325,8 +550,32 @@ public sealed partial class HomePage : Page
     {
         if (e.ClickedItem is PosterCard card && card.Id > 0)
         {
-            Frame.Navigate(typeof(ShowDetailPage), card.Id);
+            NavigateToDetail(card);
         }
+    }
+
+    /// <summary>进入详情页；聚合搜索的结果要带上来源源，否则会用错源查详情</summary>
+    private void NavigateToDetail(PosterCard card)
+    {
+        if (string.IsNullOrWhiteSpace(card.SourceUrl))
+        {
+            Frame.Navigate(typeof(ShowDetailPage), card.Id);
+            return;
+        }
+
+        Frame.Navigate(typeof(ShowDetailPage), new DetailArgs
+        {
+            VodId = card.Id,
+            SourceUrl = card.SourceUrl,
+            SourceName = card.SourceName
+        });
+    }
+
+    /// <summary>顶部轻提示</summary>
+    private void ShowHint(string text)
+    {
+        HintText.Text = text;
+        HintText.Visibility = string.IsNullOrWhiteSpace(text) ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private async void Retry_Click(object sender, RoutedEventArgs e)
@@ -364,5 +613,7 @@ public sealed partial class HomePage : Page
     internal string DebugState() =>
         $"cards={_cards.Count} cols={_columnCount} colWidth={_columnWidth:0.0} " +
         $"page={_page}/{_pageCount} queue p={ImageQueue.Current.Pending} ok={ImageQueue.Current.Completed} fail={ImageQueue.Current.Failed} " +
-        $"pic={_cards.FirstOrDefault()?.PicUrl} err={ImageQueue.Current.LastError} base={AppServices.Vod.BaseUrl}";
+        $"pic={_cards.FirstOrDefault()?.PicUrl} err={ImageQueue.Current.LastError} base={AppServices.Vod.BaseUrl} " +
+        $"aggregate={(_aggregateEnabled ? "on" : "off")} aggSources={_aggregateSourceIds.Count} " +
+        $"srcLabel='{_cards.FirstOrDefault(c => c.HasSource)?.SourceLabel ?? "-"}'";
 }

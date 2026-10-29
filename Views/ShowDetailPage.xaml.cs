@@ -28,6 +28,13 @@ public sealed partial class ShowDetailPage : Page
     private HistoryEntry? _history;
     private bool _suppressSegmentEvent;
 
+    /// <summary>聚合搜索进来的来源源（空 = 用当前激活的源）</summary>
+    private string _sourceUrl = string.Empty;
+    private string _sourceName = string.Empty;
+
+    /// <summary>指定来源时用的独立接口实例（不影响全局当前源）</summary>
+    private VodApiService? _scopedApi;
+
     public ShowDetailPage()
     {
         this.InitializeComponent();
@@ -37,10 +44,18 @@ public sealed partial class ShowDetailPage : Page
     {
         base.OnNavigatedTo(e);
 
-        if (e.Parameter is int id && id > 0)
-        {
-            _vodId = id;
-        }
+        var args = DetailArgs.From(e.Parameter);
+        _vodId = args.VodId;
+        _sourceUrl = args.SourceUrl;
+        _sourceName = args.SourceName;
+
+        // 指定了来源源：用独立实例查详情，不改动全局当前源
+        _scopedApi = string.IsNullOrWhiteSpace(_sourceUrl)
+            ? null
+            : new VodApiService(_sourceUrl)
+            {
+                AllowSniFallback = AppServices.Settings.AllowSniFallback
+            };
 
         if (_vodId > 0)
         {
@@ -61,7 +76,9 @@ public sealed partial class ShowDetailPage : Page
 
         try
         {
-            var item = await AppServices.Vod.GetDetailAsync(_vodId);
+            // 聚合搜索进来的走指定源，否则用当前激活的源
+            var api = _scopedApi ?? AppServices.Vod;
+            var item = await api.GetDetailAsync(_vodId);
             if (item == null)
             {
                 ShowError("接口没有返回该节目的详情，可能已被删除。");
@@ -113,6 +130,17 @@ public sealed partial class ShowDetailPage : Page
             UpdateBadge.Visibility = Visibility.Collapsed;
         }
 
+        // 聚合搜索进来的：标出这部片来自哪个源
+        if (!string.IsNullOrWhiteSpace(_sourceName))
+        {
+            SourceBadgeText.Text = $"来源：{_sourceName}";
+            SourceBadge.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            SourceBadge.Visibility = Visibility.Collapsed;
+        }
+
         if (!string.IsNullOrWhiteSpace(item.Pic) && Uri.TryCreate(item.Pic, UriKind.Absolute, out var picUri))
         {
             var bitmap = new BitmapImage(picUri);
@@ -136,6 +164,60 @@ public sealed partial class ShowDetailPage : Page
 
         UpdateFavoriteUi();
         UpdateResumeUi();
+        LoadSkipSettings();
+    }
+
+    /* ================= 跳过片头 / 片尾 ================= */
+
+    private void LoadSkipSettings()
+    {
+        var skip = _vodId > 0 ? LibraryStore.Current.GetSkip(_vodId) : null;
+
+        if (skip != null)
+        {
+            IntroNumberBox.Value = (int)Math.Round(skip.IntroSeconds);
+            OutroNumberBox.Value = (int)Math.Round(skip.OutroSeconds);
+            ClearSkipButton.Visibility = Visibility.Visible;
+            SkipHintText.Text = "当前已设置片头 / 片尾，保存后立即生效。";
+        }
+        else
+        {
+            IntroNumberBox.Value = 0;
+            OutroNumberBox.Value = 0;
+            ClearSkipButton.Visibility = Visibility.Collapsed;
+            SkipHintText.Text = "设置后，播放到对应位置会出现跳过按钮。";
+        }
+    }
+
+    private void SaveSkip_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vodId <= 0) return;
+
+        var intro = Math.Max(0, (double)IntroNumberBox.Value);
+        var outro = Math.Max(0, (double)OutroNumberBox.Value);
+
+        if (intro == 0 && outro == 0)
+        {
+            LibraryStore.Current.RemoveSkip(_vodId);
+            ClearSkipButton.Visibility = Visibility.Collapsed;
+            SkipHintText.Text = "设置后，播放到对应位置会出现跳过按钮。";
+            return;
+        }
+
+        LibraryStore.Current.SetSkip(_vodId, intro, outro);
+        ClearSkipButton.Visibility = Visibility.Visible;
+        SkipHintText.Text = "已保存，播放时按 J 可快速跳过。";
+    }
+
+    private void ClearSkip_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vodId <= 0) return;
+
+        LibraryStore.Current.RemoveSkip(_vodId);
+        IntroNumberBox.Value = 0;
+        OutroNumberBox.Value = 0;
+        ClearSkipButton.Visibility = Visibility.Collapsed;
+        SkipHintText.Text = "设置后，播放到对应位置会出现跳过按钮。";
     }
 
     /* ================= 收藏 / 续播 ================= */

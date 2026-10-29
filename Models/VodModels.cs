@@ -151,6 +151,29 @@ public sealed class PlayerArgs
     public double ResumeSeconds { get; set; }
 }
 
+/// <summary>详情页参数：从聚合搜索进来时带上来源源</summary>
+public sealed class DetailArgs
+{
+    public int VodId { get; set; }
+
+    /// <summary>来源源的接口地址，空串表示用当前激活的源</summary>
+    public string SourceUrl { get; set; } = string.Empty;
+
+    /// <summary>来源源的名称（界面显示用）</summary>
+    public string SourceName { get; set; } = string.Empty;
+
+    /// <summary>兼容旧的只传 int 的导航参数</summary>
+    public static DetailArgs From(object? parameter)
+    {
+        return parameter switch
+        {
+            DetailArgs args => args,
+            int id => new DetailArgs { VodId = id },
+            _ => new DetailArgs()
+        };
+    }
+}
+
 /// <summary>vod_play_from / vod_play_url 的解析器（$$$ 分线路，# 分集，$ 分名称与地址）</summary>
 public static class VodParser
 {

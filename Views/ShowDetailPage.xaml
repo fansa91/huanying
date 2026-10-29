@@ -187,6 +187,18 @@
                                                FontSize="11"
                                                Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                                 </Border>
+                                <Border x:Name="SourceBadge"
+                                        Padding="9,3"
+                                        CornerRadius="4"
+                                        Visibility="Collapsed"
+                                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                        BorderThickness="1">
+                                    <TextBlock x:Name="SourceBadgeText"
+                                               Text=""
+                                               FontSize="11"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </Border>
                             </StackPanel>
 
                             <TextBlock x:Name="DirectorText"
@@ -288,6 +300,79 @@
                                 </DataTemplate>
                             </controls:GridView.ItemTemplate>
                         </controls:GridView>
+                    </StackPanel>
+
+                    <!-- 跳过片头 / 片尾设置 -->
+                    <StackPanel Spacing="10">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Text="跳过片头 / 片尾"
+                                       Style="{StaticResource SectionTitleStyle}"
+                                       VerticalAlignment="Center" />
+
+                            <StackPanel Grid.Column="1"
+                                        Orientation="Horizontal"
+                                        Spacing="8"
+                                        VerticalAlignment="Center">
+                                <Button x:Name="ClearSkipButton"
+                                        Content="清除"
+                                        FontSize="12"
+                                        Visibility="Collapsed"
+                                        Click="ClearSkip_Click" />
+                            </StackPanel>
+                        </Grid>
+
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <TextBlock Text="片头"
+                                           FontSize="13"
+                                           VerticalAlignment="Center"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <NumberBox x:Name="IntroNumberBox"
+                                           Width="84"
+                                           Minimum="0"
+                                           Maximum="600"
+                                           Value="0"
+                                           SpinButtonPlacementMode="Compact"
+                                           FontSize="13" />
+                                <TextBlock Text="秒"
+                                           FontSize="13"
+                                           VerticalAlignment="Center"
+                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <TextBlock Text="片尾"
+                                           FontSize="13"
+                                           VerticalAlignment="Center"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <NumberBox x:Name="OutroNumberBox"
+                                           Width="84"
+                                           Minimum="0"
+                                           Maximum="600"
+                                           Value="0"
+                                           SpinButtonPlacementMode="Compact"
+                                           FontSize="13" />
+                                <TextBlock Text="秒"
+                                           FontSize="13"
+                                           VerticalAlignment="Center"
+                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                            </StackPanel>
+
+                            <Button Content="保存"
+                                    FontSize="12"
+                                    Style="{StaticResource AccentButtonStyle}"
+                                    Click="SaveSkip_Click" />
+                        </StackPanel>
+
+                        <TextBlock x:Name="SkipHintText"
+                                   Text="设置后，播放到对应位置会出现跳过按钮。"
+                                   FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                     </StackPanel>
 
                     <!-- 简介 -->

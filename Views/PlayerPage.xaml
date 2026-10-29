@@ -26,6 +26,8 @@
         <KeyboardAccelerator Key="Escape" Invoked="Escape_Invoked" />
         <KeyboardAccelerator Key="M" Invoked="Mute_Invoked" />
         <KeyboardAccelerator Key="I" Invoked="Info_Invoked" />
+        <KeyboardAccelerator Key="J" Invoked="Skip_Invoked" />
+        <KeyboardAccelerator Key="C" Invoked="Subtitle_Invoked" />
     </Page.KeyboardAccelerators>
 
     <Page.Resources>
@@ -100,6 +102,43 @@
                        Foreground="White" />
         </Border>
 
+        <!-- 自动跳过按钮（播放到对应位置时浮现） -->
+        <Button x:Name="SkipIntroButton"
+                Visibility="Collapsed"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Margin="0,0,0,90"
+                Padding="24,10"
+                CornerRadius="10"
+                Background="#CC000000"
+                BorderThickness="0"
+                IsTabStop="False"
+                AllowFocusOnInteraction="False"
+                Click="SkipIntroNow_Click">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <FontIcon Glyph="&#xE769;" FontSize="14" Foreground="White" />
+                <TextBlock Text="跳过片头" FontSize="14" Foreground="White" />
+            </StackPanel>
+        </Button>
+
+        <Button x:Name="SkipOutroButton"
+                Visibility="Collapsed"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Margin="0,0,0,90"
+                Padding="24,10"
+                CornerRadius="10"
+                Background="#CC000000"
+                BorderThickness="0"
+                IsTabStop="False"
+                AllowFocusOnInteraction="False"
+                Click="SkipOutroNow_Click">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <FontIcon Glyph="&#xE768;" FontSize="14" Foreground="White" />
+                <TextBlock Text="跳过片尾" FontSize="14" Foreground="White" />
+            </StackPanel>
+        </Button>
+
         <!-- 中央播放按钮（暂停时出现） -->
         <Button x:Name="CenterPlayButton"
                 Width="78"
@@ -118,6 +157,25 @@
                       FontSize="30"
                       Foreground="White" />
         </Button>
+
+        <!-- 字幕覆盖层（自绘，WinUI 的 MediaPlayer 不渲染外挂字幕） -->
+        <Border x:Name="SubtitleOverlay"
+                Visibility="Collapsed"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Bottom"
+                Margin="0,0,0,120"
+                Padding="14,6"
+                MaxWidth="900"
+                CornerRadius="6"
+                Background="#B3000000"
+                IsHitTestVisible="False">
+            <TextBlock x:Name="SubtitleOverlayText"
+                       Text=""
+                       FontSize="20"
+                       TextWrapping="Wrap"
+                       TextAlignment="Center"
+                       Foreground="White" />
+        </Border>
 
         <!-- 顶部栏 -->
         <Border x:Name="TopBar" VerticalAlignment="Top">
@@ -259,6 +317,48 @@
                     </StackPanel>
 
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                        <Button x:Name="SubtitleButton" Style="{StaticResource PlayerTextButton}">
+                            <ToolTipService.ToolTip>
+                                <ToolTip Content="字幕（C）" />
+                            </ToolTipService.ToolTip>
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <FontIcon Glyph="&#xE8D2;" FontSize="14" Foreground="White" />
+                                <TextBlock x:Name="SubtitleButtonText" Text="字幕" FontSize="12" Foreground="White" />
+                            </StackPanel>
+                            <Button.Flyout>
+                                <MenuFlyout Placement="Top" Opened="SubtitleMenu_Opened">
+                                    <MenuFlyoutItem x:Name="SubtitleLoadFileItem"
+                                                    Text="加载本地字幕文件…"
+                                                    Click="LoadSubtitleFile_Click" />
+                                    <MenuFlyoutItem x:Name="SubtitleLoadUrlItem"
+                                                    Text="从字幕地址加载…"
+                                                    Click="LoadSubtitleUrl_Click" />
+                                    <MenuFlyoutSeparator />
+                                    <MenuFlyoutItem x:Name="SubtitleCloseItem"
+                                                    Text="关闭字幕"
+                                                    Click="CloseSubtitle_Click" />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+
+                        <Button x:Name="SkipButton" Style="{StaticResource PlayerTextButton}">
+                            <ToolTipService.ToolTip>
+                                <ToolTip Content="跳过片头 / 片尾（J）" />
+                            </ToolTipService.ToolTip>
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <FontIcon Glyph="&#xE8B1;" FontSize="14" Foreground="White" />
+                                <TextBlock x:Name="SkipText" Text="跳过" FontSize="12" Foreground="White" />
+                            </StackPanel>
+                            <Button.Flyout>
+                                <MenuFlyout Placement="Top">
+                                    <MenuFlyoutItem Text="跳过片头" Click="SkipIntro_Click" />
+                                    <MenuFlyoutItem Text="跳过片尾" Click="SkipOutro_Click" />
+                                    <MenuFlyoutSeparator />
+                                    <MenuFlyoutItem Text="设置片头片尾…" Click="OpenSkipSettings_Click" />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+
                         <Button x:Name="SpeedButton" Style="{StaticResource PlayerTextButton}">
                             <TextBlock x:Name="SpeedText" Text="1.0x" FontSize="12" Foreground="White" />
                             <Button.Flyout>

@@ -8,7 +8,7 @@ using System.Text.Json;
 namespace Huanying.Services;
 
 /// <summary>
-/// 收藏 / 观看历史 / 断点位置的本地存储。
+/// 收藏 / 观看历史 / 断点位置 / 跳过片头片尾的本地存储。
 /// 非打包应用用不了 ApplicationData.Current，直接读写 %LOCALAPPDATA%\Huanying\library.json。
 /// 所有写入做 2 秒节流，避免播放器每秒落盘。
 /// </summary>
@@ -17,6 +17,39 @@ public sealed class LibraryStore
     public static LibraryStore Current { get; } = new();
 
     private const int MaxHistory = 200;
+
+    /* ================= 跳过片头 / 片尾 ================= */
+
+    /// <summary>获取某节目的跳过设置（片头 / 片尾秒数），未设置时返回 null</summary>
+    public SkipEntry? GetSkip(int vodId) =>
+        _data.Skips.FirstOrDefault(s => s.VodId == vodId);
+
+    /// <summary>保存某节目的跳过设置。intro/outro 为 0 表示该侧未启用</summary>
+    public void SetSkip(int vodId, double introSeconds, double outroSeconds)
+    {
+        if (vodId <= 0) return;
+
+        var existing = _data.Skips.FirstOrDefault(s => s.VodId == vodId);
+        if (existing == null)
+        {
+            existing = new SkipEntry { VodId = vodId };
+            _data.Skips.Add(existing);
+        }
+
+        existing.IntroSeconds = Math.Max(0, introSeconds);
+        existing.OutroSeconds = Math.Max(0, outroSeconds);
+        Save(force: true);
+    }
+
+    /// <summary>删除某节目的跳过设置</summary>
+    public void RemoveSkip(int vodId)
+    {
+        var existing = _data.Skips.FirstOrDefault(s => s.VodId == vodId);
+        if (existing == null) return;
+
+        _data.Skips.Remove(existing);
+        Save(force: true);
+    }
 
     private static string Dir =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Huanying");
@@ -191,5 +224,6 @@ public sealed class LibraryStore
     {
         public List<FavoriteEntry> Favorites { get; set; } = new();
         public List<HistoryEntry> History { get; set; } = new();
+        public List<SkipEntry> Skips { get; set; } = new();
     }
 }

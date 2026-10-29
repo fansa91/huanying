@@ -36,11 +36,11 @@
     <Company>Huanying</Company>
     <Copyright>Copyright © 2026 Huanying</Copyright>
     <!--
-      版本号的唯一来源是 git tag（v0.1.1 → 0.1.1）。
+      版本号的唯一来源是 git tag（v0.2.0 → 0.2.0）。
       CI 会把 tag 解析出来覆盖成 -p:Version=...，这里的值只是本地直接编译时的兜底，
       关于页显示的版本读取的是编译产物里的程序集元数据，不读这一行。
     -->
-    <Version>0.1.1</Version>
+    <Version>0.2.0</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 

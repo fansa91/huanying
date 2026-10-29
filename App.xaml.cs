@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using System;
 using System.IO;
+using System.Linq;
 
 namespace Huanying;
 
@@ -54,6 +55,19 @@ public partial class App : Application
             if (Environment.GetEnvironmentVariable("HY_APITEST") == "2")
             {
                 _ = RunProbeAsync();
+            }
+
+            // 聚合搜索自检：HY_AGGTEST=关键词 时并行查全部已配置源，把合并去重结果写进日志
+            var aggKeyword = Environment.GetEnvironmentVariable("HY_AGGTEST");
+            if (!string.IsNullOrWhiteSpace(aggKeyword))
+            {
+                _ = RunAggregateSelfTestAsync(aggKeyword);
+            }
+
+            // 跳过片头片尾存储自检：HY_SKIPTEST=1
+            if (Environment.GetEnvironmentVariable("HY_SKIPTEST") == "1")
+            {
+                RunSkipStoreTest();
             }
 
             // 页面导航自检：HY_NAV=detail[:id] / play[:id] 会真实导航并打印页面状态
@@ -425,6 +439,94 @@ public partial class App : Application
         catch (Exception ex)
         {
             Log($"APITEST FAIL : {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 聚合搜索自检：并行查询全部已配置源，打印每个源的结果与合并去重后的命中。
+    /// 触发方式：HY_AGGTEST=关键词
+    /// </summary>
+    private static async System.Threading.Tasks.Task RunAggregateSelfTestAsync(string keyword)
+    {
+        var sources = Services.AppServices.Sources.Items
+            .Where(s => !string.IsNullOrWhiteSpace(s.Url))
+            .ToList();
+
+        Log($"AGGTEST START: keyword={keyword} sources={sources.Count}");
+        foreach (var s in sources)
+        {
+            Log($"AGGTEST SRC  : {s.Name} -> {s.Url} (active={s.IsActive})");
+        }
+
+        try
+        {
+            var service = new Services.AggregateSearchService(Services.AppServices.Settings);
+            var result = await service.SearchAsync(keyword);
+
+            Log($"AGGTEST 总数  : sources={result.SourceCount} ok={result.SuccessCount} " +
+                $"failed={result.FailedCount} raw={result.RawCount} hits={result.Hits.Count}");
+
+            foreach (var r in result.SourceResults)
+            {
+                Log($"AGGTEST 源结果: {r.SourceName} success={r.Success} items={r.Items.Count} " +
+                    $"err={r.Error ?? "-"}");
+            }
+
+            foreach (var hit in result.Hits.Take(12))
+            {
+                Log($"AGGTEST 命中  : {hit.Item.Name} ({hit.Item.Year}) id={hit.Item.Id} " +
+                    $"来源={hit.SourceLabel} 源数={hit.SourceNames.Count} url={hit.SourceUrl}");
+            }
+
+            Log("AGGTEST DONE");
+        }
+        catch (Exception ex)
+        {
+            Log($"AGGTEST FAILED: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 跳过片头/片尾的存储自检：写入 → 读回 → 落盘 → 删除 → 确认清理。
+    /// 用不存在的影片 ID，避免动到用户的真实设置。
+    /// </summary>
+    private static void RunSkipStoreTest()
+    {
+        const int testId = 999001;
+        var store = Services.LibraryStore.Current;
+        var file = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Huanying", "library.json");
+
+        try
+        {
+            store.RemoveSkip(testId);
+
+            store.SetSkip(testId, 42, 18);
+            var saved = store.GetSkip(testId);
+            Log($"SKIPTEST 写入  : intro={saved?.IntroSeconds} outro={saved?.OutroSeconds} " +
+                $"(期望 42/18) → {(saved?.IntroSeconds == 42 && saved?.OutroSeconds == 18 ? "PASS" : "FAIL")}");
+
+            var text = File.Exists(file) ? File.ReadAllText(file) : string.Empty;
+            Log($"SKIPTEST 落盘  : 文件含 {testId} = {text.Contains(testId.ToString())} " +
+                $"含\"IntroSeconds\" = {text.Contains("IntroSeconds")}");
+
+            store.SetSkip(testId, 0, 25);
+            var updated = store.GetSkip(testId);
+            Log($"SKIPTEST 更新  : intro={updated?.IntroSeconds} outro={updated?.OutroSeconds} " +
+                $"(期望 0/25) → {(updated?.IntroSeconds == 0 && updated?.OutroSeconds == 25 ? "PASS" : "FAIL")}");
+
+            store.RemoveSkip(testId);
+            var removed = store.GetSkip(testId);
+            Log($"SKIPTEST 删除  : 读回 = {(removed == null ? "null(PASS)" : "仍有值(FAIL)")}");
+
+            var after = File.Exists(file) ? File.ReadAllText(file) : string.Empty;
+            Log($"SKIPTEST 清理  : 文件仍含 {testId} = {after.Contains(testId.ToString())} (期望 False)");
+            Log("SKIPTEST DONE");
+        }
+        catch (Exception ex)
+        {
+            Log($"SKIPTEST FAILED: {ex.GetType().Name}: {ex.Message}");
         }
     }
 

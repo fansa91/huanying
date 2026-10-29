@@ -17,6 +17,38 @@ public sealed class HlsPlaylistInfo
     public string? Codecs { get; init; }
     public string? FrameRate { get; init; }
     public long Bandwidth { get; init; }
+
+    /// <summary>主播放列表里声明的字幕轨</summary>
+    public List<HlsSubtitleTrack> Subtitles { get; init; } = new();
+}
+
+/// <summary>m3u8 里声明的一条字幕轨（EXT-X-MEDIA TYPE=SUBTITLES）</summary>
+public sealed class HlsSubtitleTrack
+{
+    /// <summary>轨道标识（NAME 属性）</summary>
+    public string Name { get; init; } = string.Empty;
+
+    /// <summary>语言代码（LANGUAGE 属性）</summary>
+    public string Language { get; init; } = string.Empty;
+
+    /// <summary>字幕文件地址（URI 属性，可能是相对路径）</summary>
+    public string Uri { get; init; } = string.Empty;
+
+    /// <summary>是否默认启用（DEFAULT=YES）</summary>
+    public bool IsDefault { get; init; }
+
+    /// <summary>是否强制显示（FORCED=YES）</summary>
+    public bool IsForced { get; init; }
+
+    /// <summary>界面上显示的名称</summary>
+    public string DisplayName
+    {
+        get
+        {
+            var name = string.IsNullOrWhiteSpace(Name) ? "字幕" : Name;
+            return string.IsNullOrWhiteSpace(Language) ? name : $"{name} ({Language})";
+        }
+    }
 }
 
 /// <summary>
@@ -62,7 +94,7 @@ public static class HlsPlaylist
         }
     }
 
-    /// <summary>解析第一条 #EXT-X-STREAM-INF 的属性</summary>
+    /// <summary>解析第一条 #EXT-X-STREAM-INF 的属性，并收集字幕轨</summary>
     public static HlsPlaylistInfo? Parse(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return null;
@@ -93,8 +125,86 @@ public static class HlsPlaylist
             Resolution = attributes.GetValueOrDefault("RESOLUTION"),
             Codecs = attributes.GetValueOrDefault("CODECS"),
             FrameRate = attributes.GetValueOrDefault("FRAME-RATE"),
-            Bandwidth = bandwidth
+            Bandwidth = bandwidth,
+            Subtitles = ParseSubtitles(text)
         };
+    }
+
+    /// <summary>解析主播放列表里声明的所有字幕轨</summary>
+    public static List<HlsSubtitleTrack> ParseSubtitles(string? text)
+    {
+        var result = new List<HlsSubtitleTrack>();
+        if (string.IsNullOrWhiteSpace(text)) return result;
+
+        foreach (var raw in text.Split('\n'))
+        {
+            var trimmed = raw.Trim();
+            if (!trimmed.StartsWith("#EXT-X-MEDIA:", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var attributes = ParseAttributes(trimmed["#EXT-X-MEDIA:".Length..]);
+
+            var type = attributes.GetValueOrDefault("TYPE");
+            if (!string.Equals(type, "SUBTITLES", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var uri = attributes.GetValueOrDefault("URI");
+            if (string.IsNullOrWhiteSpace(uri)) continue;
+
+            result.Add(new HlsSubtitleTrack
+            {
+                Name = attributes.GetValueOrDefault("NAME") ?? string.Empty,
+                Language = attributes.GetValueOrDefault("LANGUAGE") ?? string.Empty,
+                Uri = uri,
+                IsDefault = string.Equals(attributes.GetValueOrDefault("DEFAULT"), "YES", StringComparison.OrdinalIgnoreCase),
+                IsForced = string.Equals(attributes.GetValueOrDefault("FORCED"), "YES", StringComparison.OrdinalIgnoreCase)
+            });
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// 只取字幕轨，不关心编码信息。主播放列表没有 #EXT-X-STREAM-INF 时也能用。
+    /// </summary>
+    public static List<HlsSubtitleTrack> ParseSubtitleTracks(string? text) => ParseSubtitles(text);
+
+    /// <summary>把播放列表里的相对 URI 补成绝对地址</summary>
+    public static string ResolveUri(string baseUrl, string uri)
+    {
+        if (string.IsNullOrWhiteSpace(uri)) return string.Empty;
+        if (Uri.TryCreate(uri, UriKind.Absolute, out var absolute)) return absolute.ToString();
+        if (string.IsNullOrWhiteSpace(baseUrl)) return uri;
+
+        try
+        {
+            var baseUri = new Uri(baseUrl);
+            return new Uri(baseUri, uri).ToString();
+        }
+        catch
+        {
+            return uri;
+        }
+    }
+
+    /// <summary>下载并解析字幕文本（WebVTT / SRT 都走同一个解析器）</summary>
+    public static async Task<string?> FetchSubtitleAsync(string url, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return null;
+
+        try
+        {
+            return await Primary.GetStringAsync(url, ct);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or SocketException or TaskCanceledException)
+        {
+            try
+            {
+                return await SilentSni.GetStringAsync(url, ct);
+            }
+            catch
+            {
+                return null;
+            }
+        }
     }
 
     private static Dictionary<string, string> ParseAttributes(string line)

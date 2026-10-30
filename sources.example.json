@@ -1,31 +1,118 @@
 {
-  "_readme": "Huanying 视频源列表示例。把下面每条 api 换成你自己的苹果CMS（MacCMS V10）JSON 接口地址，然后在应用里「源管理 → 导入 JSON」选择本文件，即可一次性批量导入。",
-  "_hint": "字段说明：name = 显示名称（可省略，缺省用域名兜底）；api = 接口根地址，通常是 https://域名/api.php/provide/vod；note = 备注（可省略）。数组元素也可以直接写地址字符串，如 \"https://example.com/api.php/provide/vod\"。本项目不内置任何真实视频源，请自行添加。",
+  "_readme": "Huanying 视频源列表示例。在应用里「源管理 → 导入 JSON」选择本文件即可一次性批量导入。列表分三部分：本地演示源（随仓库自带，可离线验证）、社区公开采集接口（移植自 cms-player/vod-source）、补充接口。同地址重复导入会自动跳过。",
+  "_hint": "字段说明：name = 显示名称（可省略，缺省用域名兜底）；api = 接口根地址，苹果CMS（MacCMS V10）通常是 https://域名/api.php/provide/vod；note = 备注（可省略）。数组元素也可以直接写地址字符串。注意：这些第三方采集接口的可用性、内容与速度由对方站点决定，本项目不提供、不存储、不分发任何影片资源，也不保证它们长期有效；导入前请自行判断是否符合当地法律法规与你所在网络的使用规定。上游列表里的「低端影视」「在线之家」使用 cms:// 自定义协议，本应用不支持，未收录；其中三个站点整理时已失效（返回落地页），也未收录。",
   "sources": [
     {
       "name": "本地演示源",
       "api": "http://127.0.0.1:8899/api.php/provide/vod",
-      "note": "随仓库自带，先运行 python tools/mock_vod_server.py 再导入，可验证全部功能"
+      "note": "随仓库自带：先运行 python tools/mock_vod_server.py 再导入，可离线验证全部功能"
     },
     {
-      "name": "示例源 A（替换成你的地址）",
-      "api": "https://example.com/api.php/provide/vod",
-      "note": "苹果CMS V10 标准接口路径"
+      "name": "极速资源",
+      "api": "https://jszyapi.com/api.php/provide/vod/"
     },
     {
-      "name": "示例源 B（省略 name 时用域名兜底）",
-      "api": "https://cms.example.org/api.php/provide/vod",
-      "note": "自建站 / 内网地址也可以，http 或 https 都认"
+      "name": "卧龙资源",
+      "api": "https://collect.wolongzy.cc/api.php/provide/vod/"
     },
     {
-      "name": "示例源 C（同一地址不会重复导入）",
-      "api": "https://cms.example.net/provide/vod",
-      "note": "不同站点接口路径可能不一样，以实际为准"
+      "name": "索尼资源",
+      "api": "https://suoniapi.com/api.php/provide/vod/"
     },
     {
-      "name": "示例源 D（需要 SNI 静默回退）",
-      "api": "https://blocked.example.com/api.php/provide/vod",
-      "note": "域名被按 SNI 阻断的站点，可在设置里开启「SNI 静默直连回退」"
+      "name": "天空资源",
+      "api": "https://api.tiankongapi.com/api.php/provide/vod/"
+    },
+    {
+      "name": "飞速资源",
+      "api": "https://www.feisuzyapi.com/api.php/provide/vod/"
+    },
+    {
+      "name": "红牛资源",
+      "api": "https://www.hongniuzy2.com/api.php/provide/vod/"
+    },
+    {
+      "name": "非凡资源",
+      "api": "https://cj.ffzyapi.com/api.php/provide/vod/"
+    },
+    {
+      "name": "量子资源",
+      "api": "https://cj.lziapi.com/api.php/provide/vod/"
+    },
+    {
+      "name": "ikun资源",
+      "api": "https://ikunzyapi.com/api.php/provide/vod/"
+    },
+    {
+      "name": "光速资源",
+      "api": "https://api.guangsuapi.com/api.php/provide/vod/"
+    },
+    {
+      "name": "百度云资源",
+      "api": "https://api.apibdzy.com/api.php/provide/vod/"
+    },
+    {
+      "name": "ck资源",
+      "api": "https://ckzy.me/api.php/provide/vod/"
+    },
+    {
+      "name": "U酷资源",
+      "api": "https://api.ukuapi.com/api.php/provide/vod/"
+    },
+    {
+      "name": "闪电资源",
+      "api": "https://sdzyapi.com/api.php/provide/vod/"
+    },
+    {
+      "name": "无尽资源",
+      "api": "https://api.wujinapi.com/api.php/provide/vod/"
+    },
+    {
+      "name": "火狐资源",
+      "api": "https://hhzyapi.com/api.php/provide/vod/"
+    },
+    {
+      "name": "虎牙资源",
+      "api": "https://www.huyaapi.com/api.php/provide/vod/"
+    },
+    {
+      "name": "樱花资源",
+      "api": "https://m3u8.apiyhzy.com/api.php/provide/vod/"
+    },
+    {
+      "name": "四圈资源",
+      "api": "https://pg.fenwe078.cf/api.php/provide/vod/"
+    },
+    {
+      "name": "新悦",
+      "api": "https://jipinvip1.com/api.php/provide/vod"
+    },
+    {
+      "name": "98资源",
+      "api": "https://98zy.vip/api.php/provide/vod",
+      "note": "整理时本机连不上（超时），换成你自己的网络环境可能可用"
+    },
+    {
+      "name": "如意",
+      "api": "https://cj.rytvapi.com/api.php/provide/vod",
+      "note": "原地址里的逗号已按域名规则修正为点号"
+    },
+    {
+      "name": "天涯",
+      "api": "https://tyyszyapi.com/api.php/provide/vod"
+    },
+    {
+      "name": "木瓜",
+      "api": "https://mdzyapi.com/api.php/provide/vod"
+    },
+    {
+      "name": "猫眼",
+      "api": "https://maoyanapi.com/api.php/provide/vod",
+      "note": "整理时本机无法解析 / 连接，可能需要自己的网络环境"
+    },
+    {
+      "name": "茅台",
+      "api": "https://caiji.maotaizy.cc/api.php/provide/vod"
     },
     "https://plain.example.org/api.php/provide/vod"
   ]

@@ -1,0 +1,32 @@
+{
+  "_readme": "Huanying 视频源列表示例。把下面每条 api 换成你自己的苹果CMS（MacCMS V10）JSON 接口地址，然后在应用里「源管理 → 导入 JSON」选择本文件，即可一次性批量导入。",
+  "_hint": "字段说明：name = 显示名称（可省略，缺省用域名兜底）；api = 接口根地址，通常是 https://域名/api.php/provide/vod；note = 备注（可省略）。数组元素也可以直接写地址字符串，如 \"https://example.com/api.php/provide/vod\"。本项目不内置任何真实视频源，请自行添加。",
+  "sources": [
+    {
+      "name": "本地演示源",
+      "api": "http://127.0.0.1:8899/api.php/provide/vod",
+      "note": "随仓库自带，先运行 python tools/mock_vod_server.py 再导入，可验证全部功能"
+    },
+    {
+      "name": "示例源 A（替换成你的地址）",
+      "api": "https://example.com/api.php/provide/vod",
+      "note": "苹果CMS V10 标准接口路径"
+    },
+    {
+      "name": "示例源 B（省略 name 时用域名兜底）",
+      "api": "https://cms.example.org/api.php/provide/vod",
+      "note": "自建站 / 内网地址也可以，http 或 https 都认"
+    },
+    {
+      "name": "示例源 C（同一地址不会重复导入）",
+      "api": "https://cms.example.net/provide/vod",
+      "note": "不同站点接口路径可能不一样，以实际为准"
+    },
+    {
+      "name": "示例源 D（需要 SNI 静默回退）",
+      "api": "https://blocked.example.com/api.php/provide/vod",
+      "note": "域名被按 SNI 阻断的站点，可在设置里开启「SNI 静默直连回退」"
+    },
+    "https://plain.example.org/api.php/provide/vod"
+  ]
+}

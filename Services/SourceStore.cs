@@ -81,10 +81,23 @@ public sealed class SourceStore
     /// </summary>
     /// <returns>新增数量、跳过（已存在）数量</returns>
     public (int Added, int Skipped) Import(IEnumerable<SubscriptionEntry> entries, string subscriptionUrl)
+        => ImportCore(entries, subscriptionUrl, fromSubscription: true);
+
+    /// <summary>
+    /// 从本地文件（JSON / 纯文本）导入源。与订阅导入的区别：不关联订阅链接，
+    /// 所以之后这些源不会出现在「更新订阅」里，备注统一写成导入来源。
+    /// </summary>
+    /// <param name="entries">解析出来的源条目</param>
+    /// <param name="originLabel">导入来源描述，如「sources.example.json」</param>
+    public (int Added, int Skipped) ImportFromFile(IEnumerable<SubscriptionEntry> entries, string originLabel)
+        => ImportCore(entries, originLabel, fromSubscription: false);
+
+    private (int Added, int Skipped) ImportCore(
+        IEnumerable<SubscriptionEntry> entries, string origin, bool fromSubscription)
     {
         var added = 0;
         var skipped = 0;
-        var subscriptionHost = HostOf(subscriptionUrl);
+        var originHost = HostOf(origin);
         var hadActive = Active != null;
 
         foreach (var entry in entries)
@@ -93,7 +106,7 @@ public sealed class SourceStore
             if (existing != null)
             {
                 // 手动加过的同地址源：顺手补上订阅来源，之后也能跟着订阅更新
-                if (string.IsNullOrEmpty(existing.SubUrl)) existing.SubUrl = subscriptionUrl;
+                if (fromSubscription && string.IsNullOrEmpty(existing.SubUrl)) existing.SubUrl = origin;
                 skipped++;
                 continue;
             }
@@ -102,8 +115,10 @@ public sealed class SourceStore
             {
                 Name = string.IsNullOrWhiteSpace(entry.Name) ? HostOf(entry.Url) : entry.Name.Trim(),
                 Url = Normalize(entry.Url),
-                Note = $"订阅：{subscriptionHost}",
-                SubUrl = subscriptionUrl
+                Note = string.IsNullOrWhiteSpace(entry.Note)
+                    ? (fromSubscription ? $"订阅：{originHost}" : $"来自 {origin}")
+                    : entry.Note.Trim(),
+                SubUrl = fromSubscription ? origin : string.Empty
             });
 
             added++;

@@ -8,8 +8,12 @@ using System.Threading.Tasks;
 
 namespace Huanying.Services;
 
-/// <summary>订阅里的一条源（名称可为空，导入时用主机名兜底）</summary>
-public sealed record SubscriptionEntry(string Name, string Url);
+/// <summary>订阅里的一条源（名称 / 备注可为空，导入时用主机名兜底）</summary>
+public sealed record SubscriptionEntry(string Name, string Url)
+{
+    /// <summary>备注（JSON 里的 note / remark / description 字段，可省略）</summary>
+    public string Note { get; init; } = string.Empty;
+}
 
 /// <summary>
 /// 订阅链接：一个地址，返回若干条视频源配置，一次性导入到源列表。
@@ -124,7 +128,8 @@ public static class SubscriptionService
                 if (url != null)
                 {
                     var name = Str(element, "name") ?? Str(element, "title") ?? Str(element, "label") ?? string.Empty;
-                    AddEntry(name, url, result, seen);
+                    var note = Str(element, "note") ?? Str(element, "remark") ?? Str(element, "description") ?? string.Empty;
+                    AddEntry(name, url, result, seen, note);
                 }
 
                 // 继续往下找 { sites: [...] } / { data: { list: [...] } } 这类包装
@@ -157,10 +162,11 @@ public static class SubscriptionService
             ? line[..index].Trim(' ', '\t', ',', '，', '|', ';', '；', '-', '—', ':', '：')
             : string.Empty;
 
-        AddEntry(name, url, result, seen);
+        AddEntry(name, url, result, seen, string.Empty);
     }
 
-    private static void AddEntry(string? name, string? url, List<SubscriptionEntry> result, HashSet<string> seen)
+    private static void AddEntry(
+        string? name, string? url, List<SubscriptionEntry> result, HashSet<string> seen, string? note = null)
     {
         var normalized = (url ?? string.Empty).Trim().TrimEnd('/');
         if (normalized.Length == 0) return;
@@ -170,7 +176,10 @@ public static class SubscriptionService
 
         if (!seen.Add(normalized)) return;
 
-        result.Add(new SubscriptionEntry((name ?? string.Empty).Trim(), normalized));
+        result.Add(new SubscriptionEntry((name ?? string.Empty).Trim(), normalized)
+        {
+            Note = (note ?? string.Empty).Trim()
+        });
     }
 
     private static string? TryDecodeBase64(string text)

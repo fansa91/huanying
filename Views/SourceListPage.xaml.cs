@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using System;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Windows.ApplicationModel.DataTransfer;
@@ -135,6 +136,49 @@ public sealed partial class SourceListPage : Page
     }
 
     /* ================= 订阅 ================= */
+
+    /// <summary>从本地 JSON / 文本文件导入源（不关联订阅，导入后可随意改删）</summary>
+    private async void ImportJsonFile_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var picker = new Windows.Storage.Pickers.FileOpenPicker();
+            picker.FileTypeFilter.Add(".json");
+            picker.FileTypeFilter.Add(".txt");
+            picker.FileTypeFilter.Add(".sub");
+
+            // 非打包应用要用窗口句柄初始化，否则选择器拿不到 UI 线程
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+
+            var file = await picker.PickSingleFileAsync();
+            if (file == null) return;
+
+            var text = await File.ReadAllTextAsync(file.Path);
+            var entries = SubscriptionService.Parse(text);
+
+            if (entries.Count == 0)
+            {
+                ShowNotice("文件里没有可用的源",
+                    "没解析出接口地址。支持的写法：JSON 数组（name + api）、{\"sources\":[...]} 包装、每行一个地址、以及 Base64 编码的列表。",
+                    InfoBarSeverity.Warning);
+                return;
+            }
+
+            var (added, skipped) = AppServices.Sources.ImportFromFile(entries, file.Name);
+            RefreshHeader();
+
+            var message = $"文件共 {entries.Count} 条，新增 {added} 个源";
+            if (skipped > 0) message += $"，跳过 {skipped} 个已存在的地址";
+
+            ShowNotice(added > 0 ? "导入完成" : "没有新增源", message + "。",
+                added > 0 ? InfoBarSeverity.Success : InfoBarSeverity.Informational);
+        }
+        catch (Exception ex)
+        {
+            ShowNotice("文件读取失败", FirstLine(ex.Message), InfoBarSeverity.Error);
+        }
+    }
 
     private async void ImportSubscription_Click(object sender, RoutedEventArgs e)
     {

@@ -55,6 +55,9 @@
 - **多源管理** —— 增删改查、连通性测试、一键切换，切换后首页立即换数据
 - **订阅导入** —— 一个订阅链接批量添加源：支持 JSON 数组（`name` + `api`/`url`）、每行一个地址、
   以及 Base64 编码的列表；重复地址自动跳过，导入的源可随时「更新订阅」按订阅内容刷新
+- **JSON 文件导入** —— 「导入 JSON」按钮选一个本地 `.json` / `.txt`，同样支持上面那些格式；
+  仓库根目录的 [`sources.example.json`](sources.example.json) 是一份带字段说明的示例源列表，
+  改成自己的地址即可直接导入（示例里全是占位地址，本项目不内置任何真实视频源）
 - 收藏 / 观看历史 / 播放进度本地持久化
 - 设置项：自动连播、记忆进度、默认清晰度、主题、海报尺寸、默认视图、SNI 回退开关
 
@@ -101,6 +104,10 @@ https://你的域名/api.php/provide/vod
 | 分类表 | `?ac=list`（只有这个响应带 `class` 数组） |
 
 配置保存在 `%LOCALAPPDATA%\Huanying\settings.json`，也可以直接编辑。
+
+有多个源时，可以一次导入而不是逐个添加：把接口地址写成 JSON 列表（仓库根目录的
+[`sources.example.json`](sources.example.json) 是带字段说明的模板），然后在「源管理 → 导入 JSON」
+里选中它即可；订阅链接导入也支持同样的格式。
 
 ## 构建
 
@@ -191,6 +198,7 @@ dotnet publish Huanying.csproj -c Release -r win-x64 \
 | `HY_SUB=<订阅链接>` | 启动时导入一次订阅并打印解析 / 去重结果 |
 | `HY_AGGTEST=<关键词>` | 并行查全部已配置源，打印每个源的结果与合并去重后的命中（首页也会自动开启聚合搜索） |
 | `HY_SKIPTEST=1` | 跳过片头片尾的存储往返自检（写入 → 落盘 → 更新 → 删除，用临时 ID 不碰真实数据） |
+| `HY_JSON=<文件路径>` | 解析并导入一份 JSON / 文本源列表，打印每条结果与去重情况（`HY_JSON=1` 用仓库自带的 `sources.example.json`） |
 | `HY_SHOT=<路径>` | 用 `RenderTargetBitmap` 把窗口截成 PNG |
 
 `tools/` 下还有三个脚本，用于生成图标与 README 样板图：

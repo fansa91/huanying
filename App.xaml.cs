@@ -70,6 +70,13 @@ public partial class App : Application
                 RunSkipStoreTest();
             }
 
+            // JSON 源列表解析自检：HY_JSON=<文件路径>，或 HY_JSON=1 用仓库自带的 sources.example.json
+            var jsonArg = Environment.GetEnvironmentVariable("HY_JSON");
+            if (jsonArg is { Length: > 0 })
+            {
+                RunJsonImportTest(jsonArg == "1" ? null : jsonArg);
+            }
+
             // 页面导航自检：HY_NAV=detail[:id] / play[:id] 会真实导航并打印页面状态
             if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("HY_NAV")))
             {
@@ -527,6 +534,50 @@ public partial class App : Application
         catch (Exception ex)
         {
             Log($"SKIPTEST FAILED: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// JSON / 文本源列表解析自检：解析指定文件（或仓库自带的 sources.example.json），
+    /// 打印解析出的条目，并把结果导入本地库验证去重逻辑。
+    /// </summary>
+    private static void RunJsonImportTest(string? path)
+    {
+        var file = path ?? Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "sources.example.json");
+
+        try
+        {
+            file = Path.GetFullPath(file);
+            Log($"JSONTEST START: {file}");
+
+            if (!File.Exists(file))
+            {
+                Log($"JSONTEST FAIL : 文件不存在（{file}）");
+                return;
+            }
+
+            var text = File.ReadAllText(file);
+            var entries = Services.SubscriptionService.Parse(text);
+
+            Log($"JSONTEST 解析  : {entries.Count} 条");
+            foreach (var entry in entries)
+            {
+                Log($"JSONTEST 条目  : name='{entry.Name}' url={entry.Url} note='{entry.Note}'");
+            }
+
+            var (added, skipped) = Services.AppServices.Sources.ImportFromFile(entries, "jsontest.json");
+            Log($"JSONTEST 导入  : added={added} skipped={skipped} " +
+                $"total={Services.AppServices.Sources.Items.Count} " +
+                $"active='{Services.AppServices.Sources.ActiveName}'");
+
+            // 重复导入同一份文件，应该全部跳过
+            var (added2, skipped2) = Services.AppServices.Sources.ImportFromFile(entries, "jsontest.json");
+            Log($"JSONTEST 重复  : added={added2} skipped={skipped2} (期望 added=0)");
+            Log("JSONTEST DONE");
+        }
+        catch (Exception ex)
+        {
+            Log($"JSONTEST FAILED: {ex.GetType().Name}: {ex.Message}");
         }
     }
 

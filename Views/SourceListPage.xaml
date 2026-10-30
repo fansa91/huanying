@@ -51,6 +51,7 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
@@ -73,7 +74,16 @@
                 </StackPanel>
             </Button>
 
-            <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2" Margin="4,0,0,0">
+            <Button Grid.Column="2"
+                    Click="ImportJsonFile_Click"
+                    ToolTipService.ToolTip="从本地 JSON / 文本文件批量导入视频源（可参考仓库根目录的 sources.example.json）">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE8A1;" FontSize="13" />
+                    <TextBlock Text="导入 JSON" FontSize="13" />
+                </StackPanel>
+            </Button>
+
+            <StackPanel Grid.Column="3" VerticalAlignment="Center" Spacing="2" Margin="4,0,0,0">
                 <TextBlock x:Name="ActiveSourceText"
                            FontSize="13"
                            Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
@@ -83,7 +93,7 @@
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
 
-            <Button Grid.Column="3"
+            <Button Grid.Column="4"
                     Content="全部测试"
                     FontSize="12"
                     Click="TestAll_Click" />

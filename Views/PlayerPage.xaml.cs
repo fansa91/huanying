@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Navigation;
 using System;
 using System.Collections.Generic;
@@ -48,6 +49,26 @@ public sealed partial class PlayerPage : Page
     private HlsPlaylistInfo? _playlistInfo;
     private string? _playlistInfoUrl;
     private Task? _playlistTask;
+
+    /* ---------- 清晰度切换 ---------- */
+
+    /// <summary>当前剧集 m3u8 主播放列表里解析出的码率变体</summary>
+    private List<HlsVariant> _variants = new();
+
+    /// <summary>变体列表对应的剧集原始地址（切集后旧列表作废）</summary>
+    private string _variantUrl = string.Empty;
+
+    /// <summary>用户手动选定的变体地址，空串表示自动</summary>
+    private string _qualityUrl = string.Empty;
+
+    /// <summary>手动选择清晰度时所属的剧集地址（换集后自动失效）</summary>
+    private string _qualityEpisodeUrl = string.Empty;
+
+    /// <summary>本集是否已经按「偏好清晰度」自动选中过一次，避免反复重载</summary>
+    private bool _preferredQualityTried;
+
+    /// <summary>最近一次截图的保存路径（诊断用）</summary>
+    private string _lastShotPath = string.Empty;
 
     private int _index;
     private bool _isFullScreen;
@@ -265,9 +286,22 @@ public sealed partial class PlayerPage : Page
         if (_args == null || _mediaPlayer == null) return;
 
         var episode = _args.Episodes[_index];
-        if (!Uri.TryCreate(episode.Url, UriKind.Absolute, out var uri))
+
+        // 换到别的剧集：手选的清晰度与已解析的变体表都作废（变体地址不通用）
+        if (!string.Equals(_qualityEpisodeUrl, episode.Url, StringComparison.Ordinal))
         {
-            ShowError($"播放地址无效：{episode.Url}");
+            _qualityUrl = string.Empty;
+            _qualityEpisodeUrl = string.Empty;
+            _variants = new List<HlsVariant>();
+            _variantUrl = string.Empty;
+            _preferredQualityTried = false;
+        }
+
+        var playUrl = string.IsNullOrWhiteSpace(_qualityUrl) ? episode.Url : _qualityUrl;
+
+        if (!Uri.TryCreate(playUrl, UriKind.Absolute, out var uri))
+        {
+            ShowError($"播放地址无效：{playUrl}");
             return;
         }
 
@@ -282,9 +316,10 @@ public sealed partial class PlayerPage : Page
         _playlistTask = null;
 
         // 切集时先清掉旧字幕，再探测新地址里的字幕轨
-        _currentUrl = episode.Url;
+        _currentUrl = playUrl;
         SetSubtitleTrack(null, string.Empty);
         _ = ProbeHlsSubtitlesAsync(episode.Url);
+        _ = ProbeVariantsAsync(episode.Url);
 
         // 用 MediaPlaybackItem 包一层，才能拿到视频 / 音频轨道的编码参数（编解码器、帧率、码率）
         var mediaItem = new MediaPlaybackItem(MediaSource.CreateFromUri(uri));
@@ -941,6 +976,8 @@ public sealed partial class PlayerPage : Page
                 // 同上
             }
 
+            UpdateAudioUi();
+
             if (InfoPanel.Visibility == Visibility.Visible) RefreshVideoInfo();
         });
     }
@@ -966,6 +1003,492 @@ public sealed partial class PlayerPage : Page
         catch
         {
             // 忽略
+        }
+
+        UpdateAudioUi();
+    }
+
+    /* ================= 清晰度 ================= */
+
+    /// <summary>探测当前剧集 m3u8 的码率变体（只探原文地址，切到变体后仍以主播放列表为准）</summary>
+    private async Task ProbeVariantsAsync(string episodeUrl)
+    {
+        _variantUrl = episodeUrl;
+
+        var set = await HlsPlaylist.ProbeVariantsAsync(episodeUrl);
+
+        // 探测期间切了集：丢掉旧结果
+        if (!string.Equals(_variantUrl, episodeUrl, StringComparison.Ordinal)) return;
+
+        OnUi(() =>
+        {
+            if (!string.Equals(_variantUrl, episodeUrl, StringComparison.Ordinal)) return;
+
+            _variants = set?.Variants ?? new List<HlsVariant>();
+            if (set?.Info != null) _playlistInfo = set.Info;
+
+            UpdateQualityUi();
+
+            if (InfoPanel.Visibility == Visibility.Visible) RefreshVideoInfo();
+
+            TryApplyPreferredQuality(episodeUrl);
+        });
+    }
+
+    /// <summary>
+    /// 按设置里的「偏好清晰度」自动选一档。只在本集刚开播、且用户没手动选过时执行一次，
+    /// 避免看了一半突然重载。
+    /// </summary>
+    private void TryApplyPreferredQuality(string episodeUrl)
+    {
+        if (_preferredQualityTried) return;
+        if (_variants.Count == 0) return;
+        if (!string.IsNullOrWhiteSpace(_qualityUrl)) return;
+
+        var preferred = AppServices.Settings.PreferredQuality;
+        if (preferred <= 0) return;
+
+        var position = _session?.Position.TotalSeconds ?? 0;
+        if (position > 8) return;
+
+        var target = _variants
+                         .Where(v => v.Height > 0 && v.Height <= preferred)
+                         .OrderByDescending(v => v.Height)
+                         .ThenByDescending(v => v.Bandwidth)
+                         .FirstOrDefault()
+                     ?? _variants.OrderBy(v => v.Height > 0 ? v.Height : int.MaxValue).FirstOrDefault();
+
+        if (target == null || string.IsNullOrWhiteSpace(target.Uri)) return;
+
+        _preferredQualityTried = true;
+        ApplyQualityVariant(target, position, silent: true);
+    }
+
+    /// <summary>切到指定码率变体：记住位置，重开同一集后自动续上</summary>
+    private void ApplyQualityVariant(HlsVariant variant, double position, bool silent = false)
+    {
+        _qualityEpisodeUrl = CurrentEpisodeUrl();
+        _qualityUrl = variant.Uri;
+
+        _pendingSeek = position > 3 ? position : 0;
+        PlayCurrent();
+
+        UpdateQualityUi();
+
+        if (!silent) ShowHint($"已切换到 {VariantShortName(variant)}，从原位置继续");
+    }
+
+    private string CurrentEpisodeUrl() =>
+        _args != null && _index >= 0 && _index < _args.Episodes.Count ? _args.Episodes[_index].Url : string.Empty;
+
+    private static string VariantShortName(HlsVariant variant) => variant.Height switch
+    {
+        >= 2000 => "4K",
+        >= 1000 => "1080p",
+        >= 700 => "720p",
+        >= 400 => "480p",
+        > 0 => $"{variant.Height}p",
+        _ => string.IsNullOrWhiteSpace(variant.Resolution) ? "未知清晰度" : variant.Resolution
+    };
+
+    private void UpdateQualityUi()
+    {
+        if (string.IsNullOrWhiteSpace(_qualityUrl))
+        {
+            QualityText.Text = "自动";
+            return;
+        }
+
+        var variant = _variants.FirstOrDefault(v =>
+            string.Equals(v.Uri, _qualityUrl, StringComparison.Ordinal));
+
+        QualityText.Text = variant == null ? "已切换" : VariantShortName(variant);
+    }
+
+    /// <summary>打开清晰度菜单时按当前 m3u8 的实际码率重建（各片源差异很大，不能写死）</summary>
+    private void QualityMenu_Opened(object sender, object e)
+    {
+        QualityMenu.Items.Clear();
+
+        var auto = new RadioMenuFlyoutItem
+        {
+            Text = "自动（跟随网络）",
+            GroupName = "quality",
+            IsChecked = string.IsNullOrWhiteSpace(_qualityUrl),
+            Tag = string.Empty
+        };
+        auto.Click += Quality_Click;
+        QualityMenu.Items.Add(auto);
+
+        if (_variants.Count == 0)
+        {
+            QualityMenu.Items.Add(new MenuFlyoutItem
+            {
+                Text = "该片源没有多码率可选",
+                IsEnabled = false
+            });
+            return;
+        }
+
+        foreach (var variant in _variants)
+        {
+            var item = new RadioMenuFlyoutItem
+            {
+                Text = variant.DisplayName,
+                GroupName = "quality",
+                IsChecked = string.Equals(variant.Uri, _qualityUrl, StringComparison.Ordinal),
+                Tag = variant.Uri
+            };
+            item.Click += Quality_Click;
+            QualityMenu.Items.Add(item);
+        }
+
+        QualityMenu.Items.Add(new MenuFlyoutSeparator());
+        QualityMenu.Items.Add(new MenuFlyoutItem
+        {
+            Text = $"共 {_variants.Count} 档 · 所选清晰度会记住",
+            IsEnabled = false
+        });
+    }
+
+    private void Quality_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not RadioMenuFlyoutItem item) return;
+
+        var uri = item.Tag as string ?? string.Empty;
+        if (string.Equals(uri, _qualityUrl, StringComparison.Ordinal)) return;
+
+        var position = _session?.Position.TotalSeconds ?? 0;
+
+        // 用户明确选了「自动」，就别再自动套偏好清晰度
+        _preferredQualityTried = true;
+        _qualityEpisodeUrl = CurrentEpisodeUrl();
+        _qualityUrl = uri;
+        _pendingSeek = position > 3 ? position : 0;
+
+        PlayCurrent();
+
+        var variant = _variants.FirstOrDefault(v => string.Equals(v.Uri, uri, StringComparison.Ordinal));
+
+        // 记住这次选择，下一集 / 下次启动直接用它
+        AppServices.Settings.PreferredQuality = variant?.Height ?? 0;
+        AppServices.Settings.Save();
+
+        UpdateQualityUi();
+        ShowHint(uri.Length == 0 ? "清晰度已切回自动" : $"已切换到 {VariantShortName(variant!)}，从原位置继续");
+    }
+
+    /* ================= 音轨 ================= */
+
+    private void AudioMenu_Opened(object sender, object e)
+    {
+        AudioMenu.Items.Clear();
+
+        var tracks = _playbackItem?.AudioTracks;
+        if (tracks == null || tracks.Count == 0)
+        {
+            AudioMenu.Items.Add(new MenuFlyoutItem
+            {
+                Text = "等画面出来后再试（暂未拿到音轨）",
+                IsEnabled = false
+            });
+            return;
+        }
+
+        var current = CurrentAudioIndex();
+
+        for (var i = 0; i < tracks.Count; i++)
+        {
+            var index = i;
+            var item = new RadioMenuFlyoutItem
+            {
+                Text = DescribeAudioTrack(tracks[i], index),
+                GroupName = "audio",
+                IsChecked = index == current,
+                Tag = index
+            };
+            item.Click += AudioTrack_Click;
+            AudioMenu.Items.Add(item);
+        }
+
+        if (tracks.Count == 1)
+        {
+            AudioMenu.Items.Add(new MenuFlyoutSeparator());
+            AudioMenu.Items.Add(new MenuFlyoutItem { Text = "该片源只有一条音轨", IsEnabled = false });
+        }
+    }
+
+    private static string DescribeAudioTrack(AudioTrack track, int index)
+    {
+        try
+        {
+            var label = string.IsNullOrWhiteSpace(track.Label) ? $"音轨 {index + 1}" : track.Label;
+            if (!string.IsNullOrWhiteSpace(track.Language)) label += $"（{track.Language}）";
+
+            try
+            {
+                var props = track.GetEncodingProperties();
+                var parts = new List<string>();
+
+                parts.Add(props.ChannelCount switch
+                {
+                    1 => "单声道",
+                    2 => "立体声",
+                    6 => "5.1 声道",
+                    8 => "7.1 声道",
+                    > 0 => $"{props.ChannelCount} 声道",
+                    _ => string.Empty
+                });
+
+                var codec = CodecName(props.Subtype);
+                if (codec.Length > 0 && codec != "未知") parts.Add(codec);
+
+                parts.RemoveAll(string.IsNullOrWhiteSpace);
+                if (parts.Count > 0) label += " · " + string.Join(" · ", parts);
+            }
+            catch
+            {
+                // 编码属性读取失败就只显示名称
+            }
+
+            return label;
+        }
+        catch
+        {
+            return $"音轨 {index + 1}";
+        }
+    }
+
+    private int CurrentAudioIndex()
+    {
+        try
+        {
+            if (_playbackItem?.AudioTracks is ISingleSelectMediaTrackList list) return Math.Max(0, list.SelectedIndex);
+        }
+        catch
+        {
+            // 打开过程中拿不到 SelectedIndex，按第一条算
+        }
+
+        return 0;
+    }
+
+    private bool SetAudioIndex(int index)
+    {
+        try
+        {
+            if (_playbackItem?.AudioTracks is not ISingleSelectMediaTrackList list) return false;
+            if (index < 0 || index >= _playbackItem.AudioTracks.Count) return false;
+
+            list.SelectedIndex = index;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void AudioTrack_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not RadioMenuFlyoutItem item || item.Tag is not int index) return;
+
+        if (!SetAudioIndex(index))
+        {
+            ShowHint("这条音轨切换失败（片源可能不支持）");
+            return;
+        }
+
+        UpdateAudioUi();
+        ShowHint($"已切换音轨：{item.Text}");
+    }
+
+    private void UpdateAudioUi()
+    {
+        var count = 0;
+        try
+        {
+            count = _playbackItem?.AudioTracks.Count ?? 0;
+        }
+        catch
+        {
+            // 忽略
+        }
+
+        AudioText.Text = count > 1 ? $"音轨 {CurrentAudioIndex() + 1}/{count}" : "音轨";
+    }
+
+    /* ================= 截图 ================= */
+
+    private void Screenshot_Click(object sender, RoutedEventArgs e) => _ = CaptureScreenshotAsync(null);
+
+    private void ShortcutHelp_Click(object sender, RoutedEventArgs e) => ToggleShortcutHelp();
+
+    /// <summary>
+    /// 把当前播放页画面存成 PNG。走 XAML 合成层截图（RenderTargetBitmap），
+    /// 用项目已有的 SkiaSharp 编码，不额外引入依赖。
+    /// 注意：部分机器上视频层是硬件叠加（overlay），合成层里可能是纯黑，
+    /// 此时会明确提示「只保存到界面图层」，不会假装截到了画面。
+    /// </summary>
+    private async Task<string> CaptureScreenshotAsync(string? targetPath)
+    {
+        try
+        {
+            var bitmap = new RenderTargetBitmap();
+            await bitmap.RenderAsync(Root);
+
+            var width = bitmap.PixelWidth;
+            var height = bitmap.PixelHeight;
+            if (width <= 0 || height <= 0) return string.Empty;
+
+            var pixels = await bitmap.GetPixelsAsync();
+            var bytes = new byte[pixels.Length];
+
+            using (var reader = Windows.Storage.Streams.DataReader.FromBuffer(pixels))
+            {
+                reader.ReadBytes(bytes);
+            }
+
+            var info = new SkiaSharp.SKImageInfo(width, height,
+                SkiaSharp.SKColorType.Bgra8888, SkiaSharp.SKAlphaType.Premul);
+
+            using var skBitmap = new SkiaSharp.SKBitmap(info);
+            System.Runtime.InteropServices.Marshal.Copy(bytes, 0, skBitmap.GetPixels(), bytes.Length);
+
+            using var image = SkiaSharp.SKImage.FromBitmap(skBitmap);
+            using var data = image.Encode(SkiaSharp.SKEncodedImageFormat.Png, 92);
+            if (data == null) return string.Empty;
+
+            var path = targetPath ?? BuildScreenshotPath();
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(dir)) Directory.CreateDirectory(dir);
+
+            await File.WriteAllBytesAsync(path, data.ToArray());
+
+            _lastShotPath = path;
+
+            var flat = IsFlatFrame(bytes);
+            App.Log($"SHOT saved={path} {width}x{height} flat={flat}");
+
+            ShowHint(flat
+                ? "已保存，但画面是纯色：当前显卡走硬件叠加，视频层截不到，界面层已保存"
+                : $"已截图：{path}");
+
+            return path;
+        }
+        catch (Exception ex)
+        {
+            App.Log($"SHOT failed: {ex.GetType().Name}: {ex.Message}");
+            ShowHint($"截图失败：{ex.Message}");
+            return string.Empty;
+        }
+    }
+
+    /// <summary>抽 4096 个点看颜色是否几乎一致（判断视频层有没有被截进来）</summary>
+    private static bool IsFlatFrame(byte[] bgra)
+    {
+        if (bgra.Length < 8) return true;
+
+        var step = Math.Max(4, bgra.Length / 4096 / 4 * 4);
+        var first = (bgra[0], bgra[1], bgra[2]);
+        var different = 0;
+
+        for (var i = 0; i + 2 < bgra.Length; i += step)
+        {
+            if (Math.Abs(bgra[i] - first.Item1) > 6 ||
+                Math.Abs(bgra[i + 1] - first.Item2) > 6 ||
+                Math.Abs(bgra[i + 2] - first.Item3) > 6)
+            {
+                if (++different > 8) return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static string BuildScreenshotPath()
+    {
+        var root = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+        if (string.IsNullOrWhiteSpace(root)) root = Path.GetTempPath();
+
+        var name = $"Huanying_{DateTime.Now:yyyyMMdd_HHmmss}.png";
+        return Path.Combine(root, "Huanying", name);
+    }
+
+    /* ================= 快捷键说明 ================= */
+
+    /// <summary>播放器支持的全部按键（帮助面板与 HandleShortcut 保持同一份口径）</summary>
+    private static readonly (string Key, string Description)[] ShortcutList =
+    {
+        ("空格", "播放 / 暂停"),
+        ("← / →", "快退 / 快进 5 秒"),
+        ("↑ / ↓", "音量 +5% / -5%"),
+        ("F", "全屏 / 退出全屏"),
+        ("M", "静音"),
+        ("C", "切换字幕字号（17 / 20 / 24）"),
+        ("J", "跳过片头 / 片尾"),
+        ("I", "视频信息面板"),
+        ("S", "截图当前画面"),
+        ("F1 / ?", "显示本说明"),
+        ("Esc", "关闭面板 → 退出全屏 → 返回")
+    };
+
+    private void ToggleShortcutHelp()
+    {
+        var show = ShortcutPanel.Visibility != Visibility.Visible;
+
+        if (show)
+        {
+            EpisodePanel.Visibility = Visibility.Collapsed;
+            InfoPanel.Visibility = Visibility.Collapsed;
+            BuildShortcutRows();
+        }
+
+        ShortcutPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        ShowControls();
+    }
+
+    private void CloseShortcutHelp_Click(object sender, RoutedEventArgs e)
+    {
+        ShortcutPanel.Visibility = Visibility.Collapsed;
+        ShowControls();
+    }
+
+    private void BuildShortcutRows()
+    {
+        ShortcutRows.Children.Clear();
+
+        var keyBrush = new SolidColorBrush(Microsoft.UI.Colors.White);
+        var keyBackground = new SolidColorBrush(Windows.UI.Color.FromArgb(0x24, 0xFF, 0xFF, 0xFF));
+
+        foreach (var (key, description) in ShortcutList)
+        {
+            var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var keyBox = new Border
+            {
+                Background = keyBackground,
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(9, 3, 9, 3),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Child = new TextBlock { Text = key, FontSize = 12, Foreground = keyBrush }
+            };
+            Grid.SetColumn(keyBox, 0);
+
+            var descriptionText = new TextBlock
+            {
+                Text = description,
+                FontSize = 13,
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = new SolidColorBrush(Microsoft.UI.Colors.White) { Opacity = 0.82 }
+            };
+            Grid.SetColumn(descriptionText, 1);
+
+            row.Children.Add(keyBox);
+            row.Children.Add(descriptionText);
+            ShortcutRows.Children.Add(row);
         }
     }
 
@@ -1341,6 +1864,8 @@ public sealed partial class PlayerPage : Page
         AddSafeRow("音频码率", () => BitrateText(_audioProps?.Bitrate));
         AddSafeRow("传输方式", () => TransportText(url));
         AddSafeRow("轨道数", () => $"视频 {_playbackItem?.VideoTracks.Count ?? 0} · 音频 {_playbackItem?.AudioTracks.Count ?? 0}");
+        AddSafeRow("当前音轨", CurrentAudioTrackText);
+        AddSafeRow("清晰度档位", QualityRowText);
         AddSafeRow("时长", () => _session!.NaturalDuration > TimeSpan.Zero ? FormatTime(_session.NaturalDuration) : "未知");
         AddSafeRow("当前进度", () => $"{FormatTime(_session!.Position)} / {FormatTime(_session.NaturalDuration)}");
         AddSafeRow("预缓冲", BufferAheadText);        AddSafeRow("已缓冲区间", BufferedRangesText);
@@ -1500,6 +2025,29 @@ public sealed partial class PlayerPage : Page
         };
 
         return $"{_audioProps.SampleRate / 1000.0:0.#} kHz · {layout}";
+    }
+
+    private string CurrentAudioTrackText()
+    {
+        var tracks = _playbackItem?.AudioTracks;
+        if (tracks == null || tracks.Count == 0) return "—";
+
+        var index = Math.Clamp(CurrentAudioIndex(), 0, tracks.Count - 1);
+        return $"{index + 1}/{tracks.Count} · {DescribeAudioTrack(tracks[index], index)}";
+    }
+
+    private string QualityRowText()
+    {
+        if (_variants.Count == 0)
+        {
+            return string.IsNullOrWhiteSpace(_qualityUrl) ? "自动（片源未声明多码率）" : "已手动切换（无变体表）";
+        }
+
+        var current = string.IsNullOrWhiteSpace(_qualityUrl)
+            ? "自动"
+            : _variants.FirstOrDefault(v => string.Equals(v.Uri, _qualityUrl, StringComparison.Ordinal))?.DisplayName ?? "已切换";
+
+        return $"{current} · 可选 {_variants.Count} 档";
     }
 
     private string BufferedRangesText()
@@ -1906,6 +2454,13 @@ public sealed partial class PlayerPage : Page
     /// </summary>
     private void HandleEscape()
     {
+        if (ShortcutPanel.Visibility == Visibility.Visible)
+        {
+            ShortcutPanel.Visibility = Visibility.Collapsed;
+            ShowControls();
+            return;
+        }
+
         if (InfoPanel.Visibility == Visibility.Visible)
         {
             InfoPanel.Visibility = Visibility.Collapsed;
@@ -1984,6 +2539,15 @@ public sealed partial class PlayerPage : Page
             case VirtualKey.J:
                 SkipByShortcut();
                 break;
+            case VirtualKey.S:
+                _ = CaptureScreenshotAsync(null);
+                break;
+            case VirtualKey.F1:
+                ToggleShortcutHelp();
+                break;
+            case (VirtualKey)0xBF:      // ? 键（Shift + /）
+                ToggleShortcutHelp();
+                break;
             case VirtualKey.Escape:
                 HandleEscape();
                 break;
@@ -2054,7 +2618,46 @@ public sealed partial class PlayerPage : Page
                $"resumedFrom={_resumedFrom:0}s video={_videoProps?.Width ?? 0}x{_videoProps?.Height ?? 0} " +
                $"codec={_videoProps?.Subtype ?? "-"} audio={_audioProps?.Subtype ?? "-"} err={error} " +
                $"keys={_keysHandled} panel={EpisodePanel.Visibility} keepAwake={_keepAwake.IsActive} " +
+               $"audioTracks={_playbackItem?.AudioTracks.Count ?? 0} audioSel={CurrentAudioIndex()} " +
+               $"quality='{QualityText.Text}' variants={_variants.Count} forced={(_qualityUrl.Length > 0 ? "yes" : "no")} " +
+               $"help={ShortcutPanel.Visibility} shot='{_lastShotPath}' " +
                $"focus={FocusManager.GetFocusedElement(XamlRoot)?.GetType().Name ?? "-"}";
+    }
+
+    /// <summary>诊断用：走一遍音轨 / 清晰度菜单的构建逻辑，返回可选条数（HY_MENUTEST=1）</summary>
+    internal string DebugMenus()
+    {
+        AudioMenu_Opened(this, new object());
+        QualityMenu_Opened(this, new object());
+
+        var audioItems = AudioMenu.Items
+            .OfType<RadioMenuFlyoutItem>()
+            .Select(i => i.Text)
+            .ToList();
+
+        var qualityItems = QualityMenu.Items
+            .OfType<RadioMenuFlyoutItem>()
+            .Select(i => i.Text)
+            .ToList();
+
+        return $"audioMenu=[{string.Join(" / ", audioItems)}] " +
+               $"qualityMenu=[{string.Join(" / ", qualityItems)}] " +
+               $"quality='{QualityText.Text}' audioBtn='{AudioText.Text}' variants={_variants.Count} " +
+               $"playlistErr={(HlsPlaylist.LastError.Length > 0 ? HlsPlaylist.LastError : "ok")}";
+    }
+
+    /// <summary>诊断用：截图到指定路径（HY_SHOTFRAME=路径）</summary>
+    internal Task<string> DebugScreenshotAsync(string? path) => CaptureScreenshotAsync(path);
+
+    /// <summary>诊断用：打开 / 关闭快捷键面板并返回行数（HY_HELPTEST=1）</summary>
+    internal string DebugShortcutHelp()
+    {
+        ToggleShortcutHelp();
+        var rows = ShortcutRows.Children.Count;
+        var state = ShortcutPanel.Visibility.ToString();
+        ToggleShortcutHelp();
+
+        return $"shortcuts={rows} openState={state} closedState={ShortcutPanel.Visibility}";
     }
 
     /// <summary>诊断用：打开「视频信息」面板并返回面板文本（供 HY_NAV 自检）</summary>

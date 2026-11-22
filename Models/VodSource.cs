@@ -2,6 +2,8 @@ using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
+using Microsoft.UI.Xaml.Media;
+using Windows.UI;
 
 namespace Huanying.Models;
 
@@ -15,6 +17,8 @@ public sealed class VodSource : INotifyPropertyChanged
     private bool _isActive;
     private bool _isTesting;
     private string _status = string.Empty;
+    private string _level = string.Empty;
+    private double _latency;
 
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
 
@@ -75,6 +79,54 @@ public sealed class VodSource : INotifyPropertyChanged
             Raise(nameof(HasStatus));
         }
     }
+
+    /// <summary>最近一次测活结果："ok" / "fail" / "warn" / 空串（未测）</summary>
+    [JsonIgnore]
+    public string StatusLevel
+    {
+        get => _level;
+        set
+        {
+            if (_level == value) return;
+            _level = value ?? string.Empty;
+            Raise();
+            Raise(nameof(StatusBrush));
+        }
+    }
+
+    /// <summary>最近一次测活耗时（毫秒），0 表示没有有效结果</summary>
+    [JsonIgnore]
+    public double LatencyMs
+    {
+        get => _latency;
+        set
+        {
+            if (Math.Abs(_latency - value) < 0.5) return;
+            _latency = value;
+            Raise();
+            Raise(nameof(LatencyText));
+            Raise(nameof(HasLatency));
+        }
+    }
+
+    [JsonIgnore] public bool HasLatency => _latency > 0;
+
+    [JsonIgnore] public string LatencyText => _latency > 0 ? $"{_latency:0} ms" : string.Empty;
+
+    /// <summary>状态点的颜色（绿=可用，橙=可用但慢，红=不可用，灰=未测）</summary>
+    [JsonIgnore]
+    public Brush StatusBrush => _level switch
+    {
+        "ok" => OkBrush,
+        "warn" => WarnBrush,
+        "fail" => FailBrush,
+        _ => IdleBrush
+    };
+
+    private static readonly SolidColorBrush OkBrush = new(Color.FromArgb(255, 16, 185, 129));
+    private static readonly SolidColorBrush WarnBrush = new(Color.FromArgb(255, 245, 158, 11));
+    private static readonly SolidColorBrush FailBrush = new(Color.FromArgb(255, 239, 68, 68));
+    private static readonly SolidColorBrush IdleBrush = new(Color.FromArgb(255, 128, 128, 128));
 
     [JsonIgnore] public bool HasStatus => !string.IsNullOrWhiteSpace(_status);
 

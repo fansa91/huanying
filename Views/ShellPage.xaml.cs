@@ -169,6 +169,8 @@ public sealed partial class ShellPage : Page
     {
         HomePage home => home.DebugState(),
         SourceListPage sources => sources.DebugState(),
+        ShowDetailPage detail => detail.DebugState(),
+        PlayerPage player => player.DebugState(),
         _ => string.Empty
     };
 

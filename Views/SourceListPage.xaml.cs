@@ -316,10 +316,8 @@ public sealed partial class SourceListPage : Page
     {
         if (ResolveSource(sender) is not { } source) return;
 
-        source.StatusText = "测试中…";
-        source.StatusText = await AppServices.Sources.TestAsync(source);
-
         Notice.IsOpen = false;
+        await AppServices.Sources.TestAsync(source);
     }
 
     private async void TestAll_Click(object sender, RoutedEventArgs e)
@@ -327,16 +325,33 @@ public sealed partial class SourceListPage : Page
         var items = AppServices.Sources.Items;
         if (items.Count == 0) return;
 
-        for (var i = 0; i < items.Count; i++)
+        TestAllButton.IsEnabled = false;
+        SortButton.IsEnabled = false;
+
+        var progress = new Progress<(int Done, int Total)>(p =>
+            ShowNotice("正在并发测活", $"已完成 {p.Done}/{p.Total}（最多 4 个源同时进行）",
+                InfoBarSeverity.Informational));
+
+        try
         {
-            var source = items[i];
-            source.StatusText = "测试中…";
-            source.StatusText = await AppServices.Sources.TestAsync(source);
+            var (ok, failed) = await AppServices.Sources.TestAllAsync(progress);
 
-            ShowNotice("正在测试", $"已完成 {i + 1}/{items.Count}", InfoBarSeverity.Informational);
+            ShowNotice(failed == 0 ? "全部可用" : "测活完成",
+                $"可用 {ok} 个 · 不可用 {failed} 个。结果里带耗时，点「按延迟排序」可以把快的排到前面。",
+                failed == 0 ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
         }
+        finally
+        {
+            TestAllButton.IsEnabled = true;
+            SortButton.IsEnabled = true;
+        }
+    }
 
-        ShowNotice("测试完成", "每个源的结果显示在卡片下方。", InfoBarSeverity.Informational);
+    private void SortByLatency_Click(object sender, RoutedEventArgs e)
+    {
+        AppServices.Sources.SortByLatency();
+        RefreshHeader();
+        ShowNotice("已排序", "可用且响应快的源排在最前面。", InfoBarSeverity.Informational);
     }
 
     /* ================= 编辑对话框 ================= */

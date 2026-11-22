@@ -129,7 +129,7 @@ public sealed class AggregateSearchService
                 AllowSniFallback = _settings.AllowSniFallback
             };
 
-            var response = await probe.GetListAsync(1, null, keyword, ct).ConfigureAwait(false);
+            var response = await probe.GetListAsync(1, null, keyword, ct: ct).ConfigureAwait(false);
 
             return new AggregateSourceResult
             {

@@ -70,6 +70,18 @@ public partial class App : Application
                 RunSkipStoreTest();
             }
 
+            // 筛选参数 / HLS 变体解析自检：HY_FILTERTEST=1（纯逻辑，不联网）
+            if (Environment.GetEnvironmentVariable("HY_FILTERTEST") == "1")
+            {
+                RunFilterTest();
+            }
+
+            // 并发测活自检：HY_PROBETEST=1 把全部源测一遍、按延迟排序并打印
+            if (Environment.GetEnvironmentVariable("HY_PROBETEST") == "1")
+            {
+                _ = RunProbeAllSelfTestAsync();
+            }
+
             // JSON 源列表解析自检：HY_JSON=<文件路径>，或 HY_JSON=1 用仓库自带的 sources.example.json
             var jsonArg = Environment.GetEnvironmentVariable("HY_JSON");
             if (jsonArg is { Length: > 0 })
@@ -92,6 +104,40 @@ public partial class App : Application
         {
             Log($"OnLaunched failed: {ex}");
             throw;
+        }
+    }
+
+    /// <summary>
+    /// 并发测活 + 延迟排序自检：HY_PROBETEST=1。
+    /// 用当前源列表跑一遍，打印每个源的等级 / 耗时，再按延迟排序。
+    /// </summary>
+    private static async System.Threading.Tasks.Task RunProbeAllSelfTestAsync()
+    {
+        var store = Services.AppServices.Sources;
+
+        try
+        {
+            Log($"PROBETEST start: {store.Items.Count} 个源");
+
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var (ok, failed) = await store.TestAllAsync();
+            watch.Stop();
+
+            Log($"PROBETEST done: ok={ok} failed={failed} elapsed={watch.Elapsed.TotalSeconds:0.0}s（串行时同样数量通常要数十秒）");
+
+            foreach (var source in store.Items)
+            {
+                Log($"PROBETEST  {source.Name}: level={source.StatusLevel} latency={source.LatencyMs:0}ms " +
+                    $"status='{source.StatusText}'");
+            }
+
+            store.SortByLatency();
+            Log("PROBETEST sorted: " + string.Join(" | ",
+                store.Items.Select(s => $"{s.Name}[{s.StatusLevel}/{s.LatencyMs:0}ms]")));
+        }
+        catch (Exception ex)
+        {
+            Log($"PROBETEST FAILED: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -264,6 +310,43 @@ public partial class App : Application
                 await System.Threading.Tasks.Task.Delay(12000);
                 Log($"NAV OK shell:{page}: {shell.DebugCurrentPage()}");
                 await ShotAsync(page);
+
+                // 继续观看自检：HY_CONTINUE=1 时模拟点第一张卡片，验证 拉详情 → 进播放页
+                if (Environment.GetEnvironmentVariable("HY_CONTINUE") == "1"
+                    && shell.CurrentContent is Views.HomePage homePage)
+                {
+                    Log($"NAV CONTINUE: {await homePage.DebugResumeFirstAsync()}");
+                    await System.Threading.Tasks.Task.Delay(4000);
+
+                    if (shell.CurrentContent is Views.PlayerPage resumed)
+                    {
+                        Log($"NAV CONTINUE PLAYER: {resumed.DebugState()}");
+                    }
+                }
+
+                // 筛选自检：HY_FILTER=大陆,2025,score 设置三个下拉并重新加载
+                if (Environment.GetEnvironmentVariable("HY_FILTER") is { Length: > 0 } filterSpec
+                    && shell.CurrentContent is Views.HomePage filterHost)
+                {
+                    var filterParts = filterSpec.Split(',');
+                    var filterArea = filterParts.Length > 0 ? filterParts[0] : string.Empty;
+                    var filterYear = filterParts.Length > 1 ? filterParts[1] : string.Empty;
+                    var filterBy = filterParts.Length > 2 ? filterParts[2] : string.Empty;
+
+                    Log($"NAV FILTER: {await filterHost.DebugApplyFilterAsync(filterArea, filterYear, filterBy)}");
+                    await ShotAsync("home-filtered");
+                    Log($"NAV FILTER CLEAR: {await filterHost.DebugClearFilterAsync()}");
+                }
+
+                // 详情页相似推荐自检：HY_DETAILSCROLL=1 滚到区块并截图
+                if (Environment.GetEnvironmentVariable("HY_DETAILSCROLL") == "1"
+                    && shell.CurrentContent is Views.ShowDetailPage detailPage)
+                {
+                    Log($"NAV DETAIL BOTTOM: {detailPage.DebugScrollToSimilar()}");
+                    await System.Threading.Tasks.Task.Delay(2500);
+                    await ShotAsync("detail-bottom");
+                }
+
                 return;
             }
 
@@ -414,6 +497,24 @@ public partial class App : Application
                     await ShotAsync("player-info");
                 }
 
+                // 菜单自检：HY_MENUTEST=1 打印音轨 / 清晰度菜单里实际有哪些条目
+                if (Environment.GetEnvironmentVariable("HY_MENUTEST") == "1" && player != null)
+                {
+                    Log($"NAV MENUS: {player.DebugMenus()}");
+                }
+
+                // 快捷键面板自检：HY_HELPTEST=1 打开面板、读行数、再关掉
+                if (Environment.GetEnvironmentVariable("HY_HELPTEST") == "1" && player != null)
+                {
+                    Log($"NAV HELP: {player.DebugShortcutHelp()}");
+                }
+
+                // 播放页截图自检：HY_SHOTFRAME=<路径>
+                if (Environment.GetEnvironmentVariable("HY_SHOTFRAME") is { Length: > 0 } shotFrame && player != null)
+                {
+                    Log($"NAV SHOTFRAME: {await player.DebugScreenshotAsync(shotFrame)}");
+                }
+
                 var history = Services.LibraryStore.Current.GetHistory(item.Id);
                 Log(history == null
                     ? "LIB: 尚未记录历史"
@@ -534,6 +635,53 @@ public partial class App : Application
         catch (Exception ex)
         {
             Log($"SKIPTEST FAILED: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 筛选参数拼接 + HLS 多码率变体解析自检：HY_FILTERTEST=1。
+    /// 纯逻辑，不联网，用来确认 area/year/by 与相对地址补全都对。
+    /// </summary>
+    private static void RunFilterTest()
+    {
+        try
+        {
+            const string baseUrl = "https://example.com/api.php/provide/vod/";
+
+            Log("FILTER 空参数 : " + Services.VodApiService.BuildListUrl(baseUrl));
+            Log("FILTER 全参数 : " + Services.VodApiService.BuildListUrl(
+                baseUrl, 3, 6, "  流浪地球 ", "大陆", "2024", "score"));
+            Log("FILTER 仅排序 : " + Services.VodApiService.BuildListUrl(baseUrl, 1, null, null, null, null, "hits"));
+
+            const string master = """
+                #EXTM3U
+                #EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="sub",NAME="中文",LANGUAGE="zh",URI="sub/zh.m3u8",DEFAULT=YES
+                #EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360,CODECS="avc1.4d401e,mp4a.40.2"
+                low/index.m3u8
+                #EXT-X-STREAM-INF:BANDWIDTH=5200000,RESOLUTION=1920x1080
+                1080/index.m3u8
+                #EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=1280x720,CODECS="avc1.4d401f,mp4a.40.2"
+                https://cdn.example.com/high/index.m3u8
+                """;
+
+            var variants = Services.HlsPlaylist.ParseVariants(master, "https://cdn.example.com/vod/a/master.m3u8");
+            Log($"VARIANT 数量  : {variants.Count} (期望 3)");
+
+            foreach (var variant in variants)
+            {
+                Log($"VARIANT        : {variant.Height}p bw={variant.Bandwidth} name='{variant.DisplayName}' uri={variant.Uri}");
+            }
+
+            var subs = Services.HlsPlaylist.ParseSubtitles(master);
+            Log($"VARIANT 字幕  : {subs.Count} 条，首条 = {(subs.Count > 0 ? subs[0].DisplayName : "-")}");
+
+            var resolved = Services.HlsPlaylist.ResolveUri("https://cdn.example.com/vod/a/master.m3u8", "low/index.m3u8");
+            Log($"VARIANT 相对  : {resolved} (期望 https://cdn.example.com/vod/a/low/index.m3u8)");
+            Log("FILTERTEST DONE");
+        }
+        catch (Exception ex)
+        {
+            Log($"FILTERTEST FAILED: {ex.GetType().Name}: {ex.Message}");
         }
     }
 

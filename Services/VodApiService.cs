@@ -106,20 +106,24 @@ public sealed class VodApiService
     /// <summary>最近一次请求的完整 URL，便于排查问题</summary>
     public string? LastRequestUrl { get; private set; }
 
-    /// <summary>拉取列表（含海报等完整字段）</summary>
+    /// <summary>
+    /// 拉取列表（含海报等完整字段）。
+    /// area / year / by 为苹果CMS 的可选筛选与排序参数：<c>area=大陆</c>、<c>year=2024</c>、
+    /// <c>by=time|hits|score</c>（最新 / 最热 / 评分）。传空表示不限定。
+    /// </summary>
     public async Task<VodApiResponse> GetListAsync(
         int page = 1,
         int? typeId = null,
         string? keyword = null,
+        string? area = null,
+        string? year = null,
+        string? by = null,
         CancellationToken ct = default)
     {
         EnsureConfigured();
 
-        var query = $"/?ac=detail&pg={page}";
-        if (typeId is > 0) query += $"&t={typeId}";
-        if (!string.IsNullOrWhiteSpace(keyword)) query += $"&wd={Uri.EscapeDataString(keyword.Trim())}";
-
-        var json = await GetStringWithFallbackAsync(BaseUrl + query, ct).ConfigureAwait(false);
+        var url = BuildListUrl(BaseUrl, page, typeId, keyword, area, year, by);
+        var json = await GetStringWithFallbackAsync(url, ct).ConfigureAwait(false);
 
         var response = JsonSerializer.Deserialize<VodApiResponse>(json, JsonOptions)
                        ?? throw new VodApiException("接口返回内容为空，无法解析。", null);
@@ -131,6 +135,30 @@ public sealed class VodApiService
         }
 
         return response;
+    }
+
+    /// <summary>
+    /// 拼出列表请求地址。抽成静态方法便于自检（HY_FILTERTEST=1 直接核对参数拼接），
+    /// 也让「筛选条件」的拼装规则只有一处。
+    /// </summary>
+    public static string BuildListUrl(
+        string baseUrl,
+        int page = 1,
+        int? typeId = null,
+        string? keyword = null,
+        string? area = null,
+        string? year = null,
+        string? by = null)
+    {
+        var query = $"/?ac=detail&pg={Math.Max(1, page)}";
+
+        if (typeId is > 0) query += $"&t={typeId}";
+        if (!string.IsNullOrWhiteSpace(keyword)) query += $"&wd={Uri.EscapeDataString(keyword.Trim())}";
+        if (!string.IsNullOrWhiteSpace(area)) query += $"&area={Uri.EscapeDataString(area.Trim())}";
+        if (!string.IsNullOrWhiteSpace(year)) query += $"&year={Uri.EscapeDataString(year.Trim())}";
+        if (!string.IsNullOrWhiteSpace(by)) query += $"&by={Uri.EscapeDataString(by.Trim())}";
+
+        return (baseUrl ?? string.Empty).Trim().TrimEnd('/') + query;
     }
 
     /// <summary>按 ID 取详情</summary>

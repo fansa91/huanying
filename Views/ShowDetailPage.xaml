@@ -39,6 +39,18 @@
             <Setter Property="MinWidth" Value="0" />
             <Setter Property="MinHeight" Value="0" />
         </Style>
+
+        <!-- 导演 / 主演：看起来像链接的文字胶囊，点一下跳到首页搜索 -->
+        <Style x:Key="CreatorChipStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="7,1" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+        </Style>
     </Page.Resources>
 
     <Grid>
@@ -201,19 +213,21 @@
                                 </Border>
                             </StackPanel>
 
-                            <TextBlock x:Name="DirectorText"
-                                       Text=""
-                                       FontSize="13"
-                                       TextWrapping="Wrap"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="导演："
+                                           FontSize="13"
+                                           VerticalAlignment="Center"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <StackPanel x:Name="DirectorChips" Orientation="Horizontal" Spacing="4" />
+                            </StackPanel>
 
-                            <TextBlock x:Name="ActorText"
-                                       Text=""
-                                       FontSize="13"
-                                       MaxLines="2"
-                                       TextWrapping="Wrap"
-                                       TextTrimming="CharacterEllipsis"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="主演："
+                                           FontSize="13"
+                                           VerticalAlignment="Center"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <StackPanel x:Name="ActorChips" Orientation="Horizontal" Spacing="4" />
+                            </StackPanel>
 
                             <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,6,0,0">
                                 <Button x:Name="PlayButton"
@@ -384,6 +398,31 @@
                                    LineHeight="23"
                                    TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+
+                    <!-- 相似推荐：同分类下的热门 -->
+                    <StackPanel x:Name="SimilarSection" Spacing="10" Visibility="Collapsed">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Text="相似推荐" Style="{StaticResource SectionTitleStyle}" />
+
+                            <TextBlock x:Name="SimilarHint"
+                                       Grid.Column="1"
+                                       FontSize="12"
+                                       VerticalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                        </Grid>
+
+                        <ScrollViewer HorizontalScrollMode="Enabled"
+                                      HorizontalScrollBarVisibility="Hidden"
+                                      VerticalScrollMode="Disabled"
+                                      VerticalScrollBarVisibility="Disabled">
+                            <StackPanel x:Name="SimilarList" Orientation="Horizontal" Spacing="12" />
+                        </ScrollViewer>
                     </StackPanel>
                 </StackPanel>
             </ScrollViewer>

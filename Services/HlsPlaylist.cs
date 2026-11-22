@@ -51,6 +51,58 @@ public sealed class HlsSubtitleTrack
     }
 }
 
+/// <summary>m3u8 主播放列表里声明的一条码率变体（EXT-X-STREAM-INF）</summary>
+public sealed class HlsVariant
+{
+    /// <summary>变体播放列表地址（已补成绝对地址）</summary>
+    public string Uri { get; init; } = string.Empty;
+
+    /// <summary>声明分辨率，形如 <c>1920x1080</c>，可能为空</summary>
+    public string Resolution { get; init; } = string.Empty;
+
+    public long Bandwidth { get; init; }
+
+    public string Codecs { get; init; } = string.Empty;
+
+    /// <summary>解析出的高度，用于显示 1080p / 720p；解析失败为 0</summary>
+    public int Height
+    {
+        get
+        {
+            var x = Resolution.IndexOf('x');
+            if (x <= 0 || x >= Resolution.Length - 1) return 0;
+            return int.TryParse(Resolution[(x + 1)..].Trim(), out var h) ? h : 0;
+        }
+    }
+
+    /// <summary>界面上显示的名称，例如「1080p · 4.2 Mbps」</summary>
+    public string DisplayName
+    {
+        get
+        {
+            var quality = Height switch
+            {
+                >= 2000 => "4K",
+                >= 1000 => "1080p",
+                >= 700 => "720p",
+                >= 400 => "480p",
+                > 0 => $"{Height}p",
+                _ => string.IsNullOrWhiteSpace(Resolution) ? "未知清晰度" : Resolution
+            };
+
+            return Bandwidth > 0 ? $"{quality} · {Bandwidth / 1_000_000.0:0.##} Mbps" : quality;
+        }
+    }
+}
+
+/// <summary>一次主播放列表探测的结果：编码信息 + 全部码率变体</summary>
+public sealed class HlsVariantSet
+{
+    public HlsPlaylistInfo? Info { get; init; }
+
+    public List<HlsVariant> Variants { get; init; } = new();
+}
+
 /// <summary>
 /// 读取 m3u8 主播放列表的 EXT-X-STREAM-INF 信息，补上「帧率 / 声明码率 / 编码组合」。
 /// 只做一次小请求，失败不影响播放。
@@ -72,15 +124,7 @@ public static class HlsPlaylist
 
         try
         {
-            string text;
-            try
-            {
-                text = await Primary.GetStringAsync(url, ct);
-            }
-            catch (Exception ex) when (ex is HttpRequestException or IOException or SocketException or TaskCanceledException)
-            {
-                text = await SilentSni.GetStringAsync(url, ct);
-            }
+            var text = await FetchTextAsync(url, ct).ConfigureAwait(false);
 
             var parsed = Parse(text);
             if (parsed == null) LastError = "播放列表里没有 EXT-X-STREAM-INF";
@@ -91,6 +135,99 @@ public static class HlsPlaylist
         {
             LastError = $"{ex.GetType().Name}: {ex.Message}";
             return null;
+        }
+    }
+
+    /// <summary>
+    /// 一次性取回主播放列表：既解析编码信息，也解析全部码率变体（清晰度切换用）。
+    /// 非 m3u8 地址直接返回 null。
+    /// </summary>
+    public static async Task<HlsVariantSet?> ProbeVariantsAsync(string? url, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return null;
+        if (!url.Contains(".m3u8", StringComparison.OrdinalIgnoreCase)) return null;
+
+        LastError = string.Empty;
+
+        try
+        {
+            var text = await FetchTextAsync(url, ct).ConfigureAwait(false);
+            var variants = ParseVariants(text, url);
+
+            if (variants.Count == 0) LastError = "播放列表里没有可切换的码率变体";
+
+            return new HlsVariantSet { Info = Parse(text), Variants = variants };
+        }
+        catch (Exception ex)
+        {
+            LastError = $"{ex.GetType().Name}: {ex.Message}";
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 解析主播放列表里的全部 #EXT-X-STREAM-INF 变体。
+    /// 每个标签的下一行（非注释、非空）就是该变体的播放列表地址，可能是相对路径。
+    /// </summary>
+    public static List<HlsVariant> ParseVariants(string? text, string baseUrl)
+    {
+        var result = new List<HlsVariant>();
+        if (string.IsNullOrWhiteSpace(text)) return result;
+
+        var lines = text.Split('\n');
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var trimmed = lines[i].Trim();
+            if (!trimmed.StartsWith("#EXT-X-STREAM-INF:", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var attributes = ParseAttributes(trimmed["#EXT-X-STREAM-INF:".Length..]);
+
+            // 找下一条真实地址
+            string? uri = null;
+            for (var j = i + 1; j < lines.Length; j++)
+            {
+                var candidate = lines[j].Trim();
+                if (candidate.Length == 0 || candidate.StartsWith('#')) continue;
+                uri = candidate;
+                break;
+            }
+
+            if (string.IsNullOrWhiteSpace(uri)) continue;
+
+            long bandwidth = 0;
+            if (attributes.TryGetValue("BANDWIDTH", out var bandwidthText))
+            {
+                long.TryParse(bandwidthText, out bandwidth);
+            }
+
+            result.Add(new HlsVariant
+            {
+                Uri = ResolveUri(baseUrl, uri),
+                Resolution = attributes.GetValueOrDefault("RESOLUTION") ?? string.Empty,
+                Bandwidth = bandwidth,
+                Codecs = attributes.GetValueOrDefault("CODECS") ?? string.Empty
+            });
+        }
+
+        // 同清晰度同码率的重复项去掉，菜单才干净
+        return result
+            .GroupBy(v => $"{v.Resolution}|{v.Bandwidth}")
+            .Select(g => g.First())
+            .OrderByDescending(v => v.Height)
+            .ThenByDescending(v => v.Bandwidth)
+            .ToList();
+    }
+
+    private static async Task<string> FetchTextAsync(string url, CancellationToken ct)
+    {
+        try
+        {
+            return await Primary.GetStringAsync(url, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or SocketException or TaskCanceledException)
+        {
+            return await SilentSni.GetStringAsync(url, ct).ConfigureAwait(false);
         }
     }
 

@@ -359,6 +359,26 @@
                             </Button.Flyout>
                         </Button>
 
+                        <Button x:Name="AudioButton" Style="{StaticResource PlayerTextButton}">
+                            <ToolTipService.ToolTip>
+                                <ToolTip Content="音轨（多语种 / 国粤双语片源可切换）" />
+                            </ToolTipService.ToolTip>
+                            <TextBlock x:Name="AudioText" Text="音轨" FontSize="12" Foreground="White" />
+                            <Button.Flyout>
+                                <MenuFlyout x:Name="AudioMenu" Placement="Top" Opened="AudioMenu_Opened" />
+                            </Button.Flyout>
+                        </Button>
+
+                        <Button x:Name="QualityButton" Style="{StaticResource PlayerTextButton}">
+                            <ToolTipService.ToolTip>
+                                <ToolTip Content="清晰度（来源 m3u8 的多码率）" />
+                            </ToolTipService.ToolTip>
+                            <TextBlock x:Name="QualityText" Text="自动" FontSize="12" Foreground="White" />
+                            <Button.Flyout>
+                                <MenuFlyout x:Name="QualityMenu" Placement="Top" Opened="QualityMenu_Opened" />
+                            </Button.Flyout>
+                        </Button>
+
                         <Button x:Name="SpeedButton" Style="{StaticResource PlayerTextButton}">
                             <TextBlock x:Name="SpeedText" Text="1.0x" FontSize="12" Foreground="White" />
                             <Button.Flyout>
@@ -386,6 +406,21 @@
                                 <ToolTip Content="视频信息（I）" />
                             </ToolTipService.ToolTip>
                             <FontIcon Glyph="&#xE946;" FontSize="15" Foreground="White" />
+                        </Button>
+
+                        <Button x:Name="MoreButton" Style="{StaticResource PlayerIconButton}">
+                            <ToolTipService.ToolTip>
+                                <ToolTip Content="更多（S 截图 / F1 快捷键）" />
+                            </ToolTipService.ToolTip>
+                            <FontIcon Glyph="&#xE712;" FontSize="15" Foreground="White" />
+                            <Button.Flyout>
+                                <MenuFlyout Placement="Top">
+                                    <MenuFlyoutItem Text="截图（S）" Click="Screenshot_Click" />
+                                    <MenuFlyoutItem Text="快捷键说明（F1）" Click="ShortcutHelp_Click" />
+                                    <MenuFlyoutSeparator />
+                                    <MenuFlyoutItem Text="复制播放信息" Click="CopyInfo_Click" />
+                                </MenuFlyout>
+                            </Button.Flyout>
                         </Button>
 
                         <Button x:Name="FullScreenButton"
@@ -543,6 +578,43 @@
                 </StackPanel>
             </StackPanel>
         </Border>
+
+        <!-- 快捷键说明浮层（F1 / ?） -->
+        <Grid x:Name="ShortcutPanel"
+              Visibility="Collapsed"
+              Background="#A6000000">
+            <Border HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    MaxWidth="560"
+                    Padding="26,22"
+                    CornerRadius="14"
+                    Background="#F2101010"
+                    BorderThickness="1"
+                    BorderBrush="#26FFFFFF">
+                <StackPanel Spacing="14">
+                    <Grid>
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="快捷键"
+                                       FontSize="16"
+                                       FontWeight="SemiBold"
+                                       Foreground="White" />
+                            <TextBlock Text="播放页内任意位置生效，Esc 关闭本面板"
+                                       FontSize="10"
+                                       Foreground="#80FFFFFF" />
+                        </StackPanel>
+
+                        <Button HorizontalAlignment="Right"
+                                VerticalAlignment="Top"
+                                Style="{StaticResource PlayerIconButton}"
+                                Click="CloseShortcutHelp_Click">
+                            <FontIcon Glyph="&#xE711;" FontSize="14" Foreground="White" />
+                        </Button>
+                    </Grid>
+
+                    <StackPanel x:Name="ShortcutRows" Spacing="2" />
+                </StackPanel>
+            </Border>
+        </Grid>
 
         <!-- 错误面板 -->
         <Border x:Name="ErrorPanel"

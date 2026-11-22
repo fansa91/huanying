@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Huanying.Services;
@@ -182,10 +183,25 @@ public sealed class SourceStore
 
     /* ================= 连通性测试 ================= */
 
-    /// <summary>测试某个源是否可用，返回给界面展示的结果文字</summary>
-    public async Task<string> TestAsync(VodSource source)
+    /// <summary>测活结果的慢速阈值（毫秒）：超过它算「可用但慢」，显示为橙色</summary>
+    private const double SlowThresholdMs = 2500;
+
+    /// <summary>并发测活的最大并行数：源动辄二三十个，全放开会把自己的网络打满</summary>
+    private const int MaxParallelProbes = 4;
+
+    /// <summary>
+    /// 测试某个源是否可用：既写入界面状态（状态点 / 耗时 / 结果文字），也把结果返回。
+    /// 并发测活时本方法跑在线程池上，所有界面属性的写入都切回 UI 线程。
+    /// </summary>
+    public async Task<SourceProbeResult> TestAsync(VodSource source)
     {
-        source.IsTesting = true;
+        SetStatus(source, () =>
+        {
+            source.IsTesting = true;
+            source.StatusText = "测试中…";
+            source.StatusLevel = string.Empty;
+            source.LatencyMs = 0;
+        });
 
         try
         {
@@ -195,19 +211,104 @@ public sealed class SourceStore
                 AllowSniFallback = _settings.AllowSniFallback
             };
 
+            var watch = System.Diagnostics.Stopwatch.StartNew();
             var response = await probe.GetListAsync(1);
+            watch.Stop();
+
+            var latency = watch.Elapsed.TotalMilliseconds;
             var first = response.List.Count > 0 ? response.List[0].Name : "-";
             var channel = probe.LastUsedFallback ? "SNI 静默直连" : "常规通道";
 
-            return $"可用 · {channel} · 共 {response.Total} 条，首条《{first}》";
+            // 极慢的源标橙：能用，但换个源可能体验更好
+            var level = latency > SlowThresholdMs ? "warn" : "ok";
+            var status = $"可用 · {channel} · {latency:0} ms · 共 {response.Total} 条，首条《{first}》";
+
+            SetStatus(source, () =>
+            {
+                source.LatencyMs = latency;
+                source.StatusLevel = level;
+                source.StatusText = status;
+            });
+
+            return new SourceProbeResult(true, status, latency);
         }
         catch (Exception ex)
         {
-            return $"不可用 · {FirstLine(ex.Message)}";
+            var status = $"不可用 · {FirstLine(ex.Message)}";
+
+            SetStatus(source, () =>
+            {
+                source.LatencyMs = 0;
+                source.StatusLevel = "fail";
+                source.StatusText = status;
+            });
+
+            return new SourceProbeResult(false, status, 0);
         }
         finally
         {
-            source.IsTesting = false;
+            SetStatus(source, () => source.IsTesting = false);
+        }
+    }
+
+    /// <summary>把界面状态写入切到 UI 线程（并发测活时本方法跑在线程池上）</summary>
+    private static void SetStatus(VodSource source, Action apply)
+    {
+        var queue = App.MainWindow?.DispatcherQueue;
+
+        if (queue == null || queue.HasThreadAccess) apply();
+        else queue.TryEnqueue(() => apply());
+    }
+
+    /// <summary>
+    /// 并发测活全部源（最多 4 个同时进行），返回（可用数, 失败数）。
+    /// 逐个 await 的串行版本在二十多个源时要等一两分钟，并发后通常十几秒结束。
+    /// </summary>
+    public async Task<(int Ok, int Failed)> TestAllAsync(IProgress<(int Done, int Total)>? progress = null)
+    {
+        var targets = Items.Where(s => !string.IsNullOrWhiteSpace(s.Url)).ToList();
+        if (targets.Count == 0) return (0, 0);
+
+        var gate = new SemaphoreSlim(MaxParallelProbes);
+        var done = 0;
+        var ok = 0;
+        var failed = 0;
+
+        var tasks = targets.Select(async source =>
+        {
+            await gate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                var result = await TestAsync(source).ConfigureAwait(false);
+                if (result.Ok) Interlocked.Increment(ref ok);
+                else Interlocked.Increment(ref failed);
+            }
+            finally
+            {
+                gate.Release();
+                var finished = Interlocked.Increment(ref done);
+                progress?.Report((finished, targets.Count));
+            }
+        });
+
+        await Task.WhenAll(tasks).ConfigureAwait(false);
+        gate.Dispose();
+
+        return (ok, failed);
+    }
+
+    /// <summary>按测活结果排序：可用的在前，同档按耗时升序，没测过的排最后</summary>
+    public void SortByLatency()
+    {
+        var ordered = Items
+            .OrderBy(s => s.StatusLevel switch { "ok" => 0, "warn" => 1, "fail" => 2, _ => 3 })
+            .ThenBy(s => s.LatencyMs > 0 ? s.LatencyMs : double.MaxValue)
+            .ToList();
+
+        for (var i = 0; i < ordered.Count; i++)
+        {
+            var from = Items.IndexOf(ordered[i]);
+            if (from != i) Items.Move(from, i);
         }
     }
 
@@ -254,3 +355,6 @@ public sealed class SourceStore
         return line.Length > 90 ? line[..90] + "…" : line;
     }
 }
+
+/// <summary>一次测活的结果：是否可用 / 展示文字 / 耗时</summary>
+public sealed record SourceProbeResult(bool Ok, string Text, double LatencyMs);

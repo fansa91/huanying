@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using System;
 using System.Collections.Generic;
@@ -35,6 +36,32 @@ public sealed partial class HomePage : Page
     private bool _loading;
     private string? _loadedBaseUrl;
     private bool _initialized;
+
+    /* ---------- 筛选（地区 / 年份 / 排序） ---------- */
+
+    /// <summary>地区筛选值，null 表示不限</summary>
+    private string? _area;
+
+    /// <summary>年份筛选值，null 表示不限</summary>
+    private string? _year;
+
+    /// <summary>排序方式（time / hits / score），null 表示接口默认</summary>
+    private string? _sortBy;
+
+    /// <summary>正在初始化筛选下拉，避免触发 SelectionChanged 引发多余请求</summary>
+    private bool _suppressFilter;
+
+    /// <summary>地区选项（苹果CMS 的 area 参数用的是中文名）</summary>
+    private static readonly string[] Areas =
+    {
+        "全部地区", "大陆", "香港", "台湾", "美国", "韩国", "日本", "泰国", "英国", "法国", "印度", "其它"
+    };
+
+    /// <summary>排序选项：显示名 → by 参数</summary>
+    private static readonly (string Label, string? By)[] Sorts =
+    {
+        ("默认排序", null), ("最新", "time"), ("最热", "hits"), ("评分", "score")
+    };
 
     private int _columnCount;
     private double _columnWidth = MinColumnWidth;
@@ -80,6 +107,9 @@ public sealed partial class HomePage : Page
         _initialized = true;
 
         _loadedBaseUrl = AppServices.Vod.BaseUrl;
+
+        BuildFilterOptions();
+        RefreshContinueRow();
 
         if (!AppServices.Vod.HasSource)
         {
@@ -179,6 +209,251 @@ public sealed partial class HomePage : Page
         await LoadAsync(reset: true);
     }
 
+    /* ================= 筛选与排序 ================= */
+
+    /// <summary>初始化地区 / 年份 / 排序下拉（年份取最近 12 年）</summary>
+    private void BuildFilterOptions()
+    {
+        _suppressFilter = true;
+
+        AreaBox.Items.Clear();
+        foreach (var area in Areas) AreaBox.Items.Add(area);
+        AreaBox.SelectedIndex = 0;
+
+        YearBox.Items.Clear();
+        YearBox.Items.Add("全部年份");
+        var thisYear = DateTime.Now.Year;
+        for (var year = thisYear; year >= thisYear - 11; year--) YearBox.Items.Add(year.ToString());
+        YearBox.SelectedIndex = 0;
+
+        SortBox.Items.Clear();
+        foreach (var (label, _) in Sorts) SortBox.Items.Add(label);
+        SortBox.SelectedIndex = 0;
+
+        _suppressFilter = false;
+    }
+
+    private async void Filter_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressFilter) return;
+        await ApplyFiltersAsync();
+    }
+
+    /// <summary>把三个下拉的当前选择换算成接口参数并重新加载</summary>
+    private async Task ApplyFiltersAsync()
+    {
+        _area = AreaBox.SelectedIndex > 0 ? AreaBox.SelectedItem as string : null;
+
+        var year = YearBox.SelectedIndex > 0 ? YearBox.SelectedItem as string : null;
+        _year = string.IsNullOrWhiteSpace(year) ? null : year;
+
+        var sortIndex = SortBox.SelectedIndex;
+        _sortBy = sortIndex >= 0 && sortIndex < Sorts.Length ? Sorts[sortIndex].By : null;
+
+        UpdateFilterUi();
+
+        // 筛选只在单源列表模式有意义；聚合搜索是跨源关键词查询
+        if (_aggregateEnabled && !string.IsNullOrWhiteSpace(_keyword))
+        {
+            await RunAggregateSearchAsync(_keyword);
+            return;
+        }
+
+        await LoadAsync(reset: true);
+    }
+
+    private void UpdateFilterUi()
+    {
+        var active = _area != null || _year != null || _sortBy != null;
+
+        ClearFilterButton.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+
+        var parts = new List<string>();
+        if (_area != null) parts.Add(_area);
+        if (_year != null) parts.Add(_year);
+        if (_sortBy != null) parts.Add(Sorts.First(s => s.By == _sortBy).Label);
+
+        FilterHint.Text = parts.Count == 0 ? string.Empty : $"筛选中：{string.Join(" · ", parts)}";
+    }
+
+    private async void ClearFilter_Click(object sender, RoutedEventArgs e)
+    {
+        _suppressFilter = true;
+        AreaBox.SelectedIndex = 0;
+        YearBox.SelectedIndex = 0;
+        SortBox.SelectedIndex = 0;
+        _suppressFilter = false;
+
+        _area = null;
+        _year = null;
+        _sortBy = null;
+
+        UpdateFilterUi();
+        await LoadAsync(reset: true);
+    }
+
+    /* ================= 继续观看 ================= */
+
+    /// <summary>按本地历史重建「继续观看」横向行（最多 10 条，最近的在前）</summary>
+    private void RefreshContinueRow()
+    {
+        try
+        {
+            var history = LibraryStore.Current.History
+                .Where(h => h.VodId > 0)
+                .Take(10)
+                .ToList();
+
+            ContinueList.Children.Clear();
+
+            if (history.Count == 0)
+            {
+                ContinueSection.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            foreach (var entry in history) ContinueList.Children.Add(BuildContinueCard(entry));
+
+            ContinueSection.Visibility = Visibility.Visible;
+            ContinueHint.Text = $"{history.Count} 部未看完 · 点海报直接续播";
+        }
+        catch
+        {
+            ContinueSection.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private FrameworkElement BuildContinueCard(HistoryEntry entry)
+    {
+        var card = new Border
+        {
+            Width = 152,
+            CornerRadius = new CornerRadius(10),
+            Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+            BorderBrush = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"],
+            BorderThickness = new Thickness(1)
+        };
+
+        // 两行写死：海报 200 + 文字自适应。横向 StackPanel 会把同一行的卡片拉成等高
+        var layout = new Grid();
+        layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(200) });
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        // 海报区（图片没到之前用同色系占位）
+        var poster = new Grid();
+        poster.Children.Add(new Border
+        {
+            Background = entry.PosterBrush,
+            CornerRadius = new CornerRadius(9, 9, 0, 0)
+        });
+
+        if (Uri.TryCreate(entry.Pic, UriKind.Absolute, out var picUri))
+        {
+            poster.Children.Add(new Image
+            {
+                Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(picUri),
+                Stretch = Stretch.UniformToFill
+            });
+        }
+
+        // 海报底部的细进度条（叠在海报上，不额外占高度）
+        poster.Children.Add(new ProgressBar
+        {
+            Value = entry.Progress,
+            Maximum = 100,
+            Minimum = 0,
+            Height = 3,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            IsHitTestVisible = false
+        });
+
+        var textPanel = new StackPanel
+        {
+            Spacing = 2,
+            Padding = new Thickness(9, 7, 9, 9),
+            // 固定文字区高度：一行标题 + 一行副标题，多张卡片才能齐平
+            MinHeight = 46
+        };
+
+        var title = new TextBlock
+        {
+            Text = entry.Name,
+            FontSize = 13,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            MaxLines = 1,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorPrimaryBrush"]
+        };
+
+        var subtitle = new TextBlock
+        {
+            Text = entry.Subtitle,
+            FontSize = 11,
+            MaxLines = 1,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"]
+        };
+
+        textPanel.Children.Add(title);
+        textPanel.Children.Add(subtitle);
+
+        Grid.SetRow(poster, 0);
+        Grid.SetRow(textPanel, 1);
+
+        layout.Children.Add(poster);
+        layout.Children.Add(textPanel);
+        card.Child = layout;
+
+        ToolTipService.SetToolTip(card, $"继续观看：{entry.Name} · {entry.Subtitle}");
+        card.Tapped += async (_, _) => await ResumeFromHistoryAsync(entry);
+
+        return card;
+    }
+
+    /// <summary>点「继续观看」：拉一次详情拿到分集地址，直接带着进度进播放页</summary>
+    private async Task ResumeFromHistoryAsync(HistoryEntry entry)
+    {
+        ShowHint($"正在打开《{entry.Name}》…");
+
+        if (!AppServices.Vod.HasSource)
+        {
+            Frame.Navigate(typeof(ShowDetailPage), entry.VodId);
+            return;
+        }
+
+        try
+        {
+            var item = await AppServices.Vod.GetDetailAsync(entry.VodId);
+
+            if (item == null || !item.HasPlaySource)
+            {
+                // 详情拿不到（换源了 / 被删了）：退回到详情页，用户自己挑线路
+                Frame.Navigate(typeof(ShowDetailPage), entry.VodId);
+                return;
+            }
+
+            var episodes = item.Sources[0].Episodes;
+            var index = Math.Clamp(entry.EpisodeIndex - 1, 0, episodes.Count - 1);
+
+            Frame.Navigate(typeof(PlayerPage), new PlayerArgs
+            {
+                VodId = item.Id,
+                VodName = item.Name,
+                Title = $"{item.Name} · {episodes[index].Name}",
+                PosterUrl = item.Pic,
+                Episodes = episodes,
+                StartIndex = index,
+                ResumeSeconds = entry.Position
+            });
+        }
+        catch (Exception ex)
+        {
+            ShowHint($"续播失败：{ex.Message}");
+            Frame.Navigate(typeof(ShowDetailPage), entry.VodId);
+        }
+    }
+
     /* ================= 聚合搜索 ================= */
 
     /// <summary>开启 / 关闭聚合搜索</summary>
@@ -190,6 +465,9 @@ public sealed partial class HomePage : Page
 
         AggregateSourceButton.Visibility = _aggregateEnabled ? Visibility.Visible : Visibility.Collapsed;
         AggregateSourceBar.Visibility = _aggregateEnabled ? Visibility.Visible : Visibility.Collapsed;
+
+        // 聚合搜索是跨源关键词查询，地区 / 年份 / 排序对它不生效，先收起来免得误会
+        FilterBar.Visibility = _aggregateEnabled ? Visibility.Collapsed : Visibility.Visible;
 
         if (_aggregateEnabled)
         {
@@ -409,7 +687,10 @@ public sealed partial class HomePage : Page
             var response = await AppServices.Vod.GetListAsync(
                 nextPage,
                 _typeId,
-                string.IsNullOrWhiteSpace(_keyword) ? null : _keyword);
+                string.IsNullOrWhiteSpace(_keyword) ? null : _keyword,
+                _area,
+                _year,
+                _sortBy);
 
             _page = response.Page > 0 ? response.Page : nextPage;
             _pageCount = response.PageCount > 0 ? response.PageCount : _page;
@@ -583,17 +864,65 @@ public sealed partial class HomePage : Page
         await LoadAsync(reset: true);
     }
 
-    protected override void OnNavigatedTo(NavigationEventArgs e)
+    protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+
+        // 从详情页点演员 / 导演，或任意页面带关键词跳回来：参数形如 "search:周星驰"
+        if (e.Parameter is string spec && spec.StartsWith("search:", StringComparison.Ordinal))
+        {
+            var keyword = spec["search:".Length..].Trim();
+            if (keyword.Length > 0)
+            {
+                await ApplyExternalSearchAsync(keyword);
+                return;
+            }
+        }
 
         // 页面已缓存（NavigationCacheMode=Required），从详情页返回时保留列表与滚动位置；
         // 但源被切换过（接口地址变了）时需要重新加载。
         if (_initialized && _loadedBaseUrl != AppServices.Vod.BaseUrl)
         {
             _loadedBaseUrl = AppServices.Vod.BaseUrl;
-            _ = ReloadForNewSourceAsync();
+            await ReloadForNewSourceAsync();
+            return;
         }
+
+        // 从播放页回来时历史可能变了，「继续观看」要跟着更新
+        if (_initialized) RefreshContinueRow();
+    }
+
+    /// <summary>外部带关键词跳进来：清掉分类与筛选，保证搜得到东西</summary>
+    private async Task ApplyExternalSearchAsync(string keyword)
+    {
+        _keyword = keyword;
+        _typeId = null;
+        SearchBox.Text = keyword;
+
+        // 分类胶囊回到「全部」
+        foreach (var child in CategoryBar.Children)
+        {
+            if (child is ToggleButton pill) pill.IsChecked = pill.Tag is null;
+        }
+
+        _suppressFilter = true;
+        AreaBox.SelectedIndex = 0;
+        YearBox.SelectedIndex = 0;
+        SortBox.SelectedIndex = 0;
+        _suppressFilter = false;
+
+        _area = null;
+        _year = null;
+        _sortBy = null;
+        UpdateFilterUi();
+
+        if (_aggregateEnabled)
+        {
+            await RunAggregateSearchAsync(keyword);
+            return;
+        }
+
+        await LoadAsync(reset: true);
     }
 
     private async Task ReloadForNewSourceAsync()
@@ -609,11 +938,66 @@ public sealed partial class HomePage : Page
         await LoadAsync(reset: true);
     }
 
+    /// <summary>诊断用：模拟点击第一张「继续观看」卡片，验证 拉详情 → 进播放页 整条链路</summary>
+    internal async Task<string> DebugResumeFirstAsync()
+    {
+        var entry = LibraryStore.Current.History.FirstOrDefault();
+        if (entry == null) return "no-history";
+
+        await ResumeFromHistoryAsync(entry);
+        await Task.Delay(2000);
+
+        return $"clicked='{entry.Name}' 第{entry.EpisodeIndex}集 pos={entry.Position:0}s " +
+               $"navigated={Frame.CurrentSourcePageType?.Name ?? "-"} " +
+               $"historyCount={ContinueList.Children.Count}";
+    }
+
+    /// <summary>诊断用：设置筛选条件并重新加载（HY_FILTER=大陆,2025,score）</summary>
+    internal async Task<string> DebugApplyFilterAsync(string area, string year, string by)
+    {
+        _suppressFilter = true;
+
+        var areaIndex = Array.IndexOf(Areas, area);
+        AreaBox.SelectedIndex = areaIndex > 0 ? areaIndex : 0;
+
+        var yearIndex = string.IsNullOrWhiteSpace(year) ? 0 : YearBox.Items.IndexOf(year);
+        YearBox.SelectedIndex = yearIndex > 0 ? yearIndex : 0;
+
+        var sortIndex = 0;
+        for (var i = 0; i < Sorts.Length; i++)
+        {
+            if (Sorts[i].By == by) sortIndex = i;
+        }
+        SortBox.SelectedIndex = sortIndex;
+
+        _suppressFilter = false;
+
+        await ApplyFiltersAsync();
+        return DebugState();
+    }
+
+    /// <summary>诊断用：清掉筛选并重新加载</summary>
+    internal async Task<string> DebugClearFilterAsync()
+    {
+        _suppressFilter = true;
+        AreaBox.SelectedIndex = 0;
+        YearBox.SelectedIndex = 0;
+        SortBox.SelectedIndex = 0;
+        _suppressFilter = false;
+
+        await ApplyFiltersAsync();
+        return DebugState();
+    }
+
     /// <summary>诊断用：供 HY_NAV / HY_SMOKE 读取首页状态</summary>
     internal string DebugState() =>
         $"cards={_cards.Count} cols={_columnCount} colWidth={_columnWidth:0.0} " +
         $"page={_page}/{_pageCount} queue p={ImageQueue.Current.Pending} ok={ImageQueue.Current.Completed} fail={ImageQueue.Current.Failed} " +
         $"pic={_cards.FirstOrDefault()?.PicUrl} err={ImageQueue.Current.LastError} base={AppServices.Vod.BaseUrl} " +
         $"aggregate={(_aggregateEnabled ? "on" : "off")} aggSources={_aggregateSourceIds.Count} " +
-        $"srcLabel='{_cards.FirstOrDefault(c => c.HasSource)?.SourceLabel ?? "-"}'";
+        $"srcLabel='{_cards.FirstOrDefault(c => c.HasSource)?.SourceLabel ?? "-"}' " +
+        $"filter(area='{_area}' year='{_year}' by='{_sortBy}' options={AreaBox.Items.Count}/{YearBox.Items.Count}/{SortBox.Items.Count}) " +
+        $"continue={ContinueList.Children.Count} " +
+        $"heights=[{string.Join(",", ContinueList.Children.OfType<FrameworkElement>().Select(c => $"{c.ActualHeight:0}"))}] " +
+        $"keyword='{_keyword}'";
 }

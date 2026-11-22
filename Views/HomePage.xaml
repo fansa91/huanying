@@ -24,6 +24,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
@@ -90,6 +91,31 @@
                         FontSize="12"
                         Click="SelectCurrentSource_Click" />
             </StackPanel>
+
+            <!-- 继续观看：有历史时出现，点一下直接续播 -->
+            <StackPanel x:Name="ContinueSection"
+                        Spacing="8"
+                        Visibility="Collapsed">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <TextBlock Text="继续观看"
+                               FontSize="15"
+                               FontWeight="SemiBold"
+                               Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                    <TextBlock x:Name="ContinueHint"
+                               FontSize="12"
+                               VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                </StackPanel>
+
+                <ScrollViewer HorizontalScrollMode="Enabled"
+                              HorizontalScrollBarVisibility="Hidden"
+                              VerticalScrollMode="Disabled"
+                              VerticalScrollBarVisibility="Disabled">
+                    <StackPanel x:Name="ContinueList"
+                                Orientation="Horizontal"
+                                Spacing="12" />
+                </ScrollViewer>
+            </StackPanel>
         </StackPanel>
 
         <!-- ============ 分类胶囊 ============ -->
@@ -102,8 +128,40 @@
             <StackPanel x:Name="CategoryBar" Orientation="Horizontal" Spacing="8" />
         </ScrollViewer>
 
+        <!-- ============ 筛选条：地区 / 年份 / 排序 ============ -->
+        <StackPanel x:Name="FilterBar"
+                    Grid.Row="2"
+                    Orientation="Horizontal"
+                    Spacing="8"
+                    Margin="0,0,0,14">
+            <ComboBox x:Name="AreaBox"
+                      MinWidth="112"
+                      FontSize="12"
+                      PlaceholderText="地区"
+                      SelectionChanged="Filter_SelectionChanged" />
+            <ComboBox x:Name="YearBox"
+                      MinWidth="104"
+                      FontSize="12"
+                      PlaceholderText="年份"
+                      SelectionChanged="Filter_SelectionChanged" />
+            <ComboBox x:Name="SortBox"
+                      MinWidth="112"
+                      FontSize="12"
+                      PlaceholderText="排序"
+                      SelectionChanged="Filter_SelectionChanged" />
+            <Button x:Name="ClearFilterButton"
+                    Content="清除筛选"
+                    FontSize="12"
+                    Visibility="Collapsed"
+                    Click="ClearFilter_Click" />
+            <TextBlock x:Name="FilterHint"
+                       VerticalAlignment="Center"
+                       FontSize="11"
+                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+        </StackPanel>
+
         <!-- ============ 内容区 ============ -->
-        <Grid Grid.Row="2">
+        <Grid Grid.Row="3">
 
             <!-- 瀑布流视图 -->
             <ScrollViewer x:Name="WaterfallScroll"
@@ -327,7 +385,7 @@
         </Grid>
 
         <!-- ============ 底部：状态 + 加载更多 ============ -->
-        <Grid Grid.Row="3" Margin="0,8,0,16">
+        <Grid Grid.Row="4" Margin="0,8,0,16">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />

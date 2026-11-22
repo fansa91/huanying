@@ -27,6 +27,12 @@ public sealed class AppSettings
     /// </summary>
     public bool AllowSniFallback { get; set; } = true;
 
+    /// <summary>
+    /// 偏好的清晰度高度（1080 / 720 / 480…），0 表示「自动」。
+    /// 播放器在拿到 m3u8 码率变体列表后，会优先选中不超过该高度的最高档。
+    /// </summary>
+    public int PreferredQuality { get; set; }
+
     private static string Dir =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Huanying");
 

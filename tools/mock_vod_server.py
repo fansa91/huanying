@@ -84,7 +84,8 @@ def build_items():
             "vod_lang": rng.choice(LANGS),
             "vod_duration": f"{rng.randint(42, 132)}分钟",
             "vod_pubdate": f"2026-{rng.randint(1, 9):02d}-{rng.randint(1, 28):02d}",
-            "vod_time": "2026-10-20 12:00:00",
+            "vod_time": f"2026-{rng.randint(1, 10):02d}-{rng.randint(1, 28):02d} 12:00:00",
+            "vod_hits": rng.randint(120, 92000),
             "vod_score": f"{rng.uniform(6.8, 9.4):.1f}",
             "vod_total": 0,
             "vod_isend": 1 if ep_count > 1 and i % 3 == 0 else 0,
@@ -97,6 +98,18 @@ def build_items():
 
 ITEMS = build_items()
 PAGE_SIZE = 20
+
+# 主播放列表：3 档码率 + 1 条中文字幕轨（相对地址，用来验证相对路径补全）
+MASTER_PLAYLIST = """#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="sub",NAME="中文",LANGUAGE="zh",URI="subs/zh.m3u8",DEFAULT=YES,AUTOSELECT=YES
+#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360,CODECS="avc1.4d401e,mp4a.40.2",SUBTITLES="sub"
+360p.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=1280x720,CODECS="avc1.4d401f,mp4a.40.2",SUBTITLES="sub"
+720p.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=5200000,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2",SUBTITLES="sub"
+1080p.m3u8
+"""
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -114,10 +127,10 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def send_text(self, text):
+    def send_text(self, text, ctype="text/plain; charset=utf-8"):
         body = text.encode("utf-8")
         self.send_response(200)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -144,6 +157,23 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/posters/"):
             name = os.path.basename(path)
             self.send_file(os.path.join(POSTERS, name))
+            return
+
+        # HLS：给一个带 3 档码率 + 1 条字幕轨的主播放列表，
+        # 用于验证「清晰度切换 / 音轨 / 字幕轨」的界面与解析（不含真实分片，播放会失败）
+        if path.startswith("/hls/") and path.endswith(".m3u8"):
+            stem = os.path.basename(path)[:-5]
+            if stem.endswith("p") and stem[:-1].isdigit():
+                # 变体播放列表（360p / 720p / 1080p）：合法的空媒体列表
+                self.send_text(
+                    "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:6\n#EXT-X-ENDLIST\n",
+                    "application/vnd.apple.mpegurl")
+            else:
+                self.send_text(MASTER_PLAYLIST, "application/vnd.apple.mpegurl")
+            return
+
+        if path.startswith("/hls/"):
+            self.send_error(404)
             return
 
         # 订阅链接（自检用）：JSON 数组，其中一条地址重复，应被去重跳过
@@ -200,6 +230,24 @@ class Handler(BaseHTTPRequestHandler):
             tid = (qs.get("t") or [""])[0]
             if tid.isdigit():
                 result = [it for it in result if it["type_id"] == int(tid)]
+
+            # 地区 / 年份筛选（真实站点用「大陆、香港」这类短名，这里按包含关系匹配）
+            area = (qs.get("area") or [""])[0].strip()
+            if area and area != "全部":
+                result = [it for it in result if area in it["vod_area"] or it["vod_area"] in area]
+
+            year = (qs.get("year") or [""])[0].strip()
+            if year.isdigit():
+                result = [it for it in result if it["vod_year"] == year]
+
+            # 排序：time=最新 / hits=最热 / score=评分
+            by = (qs.get("by") or [""])[0].strip()
+            if by == "time":
+                result = sorted(result, key=lambda it: it["vod_time"], reverse=True)
+            elif by == "hits":
+                result = sorted(result, key=lambda it: it["vod_hits"], reverse=True)
+            elif by == "score":
+                result = sorted(result, key=lambda it: float(it["vod_score"]), reverse=True)
 
             page = (qs.get("pg") or ["1"])[0]
             page = int(page) if page.isdigit() else 1

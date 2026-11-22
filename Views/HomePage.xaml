@@ -20,405 +20,430 @@
         </Style>
     </Page.Resources>
 
-    <Grid Padding="32,24,32,0">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
+    <Grid>
 
-        <!-- ============ 顶部：标题 / 搜索 / 视图切换 ============ -->
-        <StackPanel Grid.Row="0" Spacing="14" Margin="0,0,0,14">
-            <TextBlock Text="首页"
-                       FontSize="30"
-                       FontWeight="SemiBold"
-                       Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+        <!--
+            整页只有一个滚动体：标题 / 搜索 / 继续观看 / 分类 / 筛选 / 列表都在里面，
+            向上滚动时头部随内容滚走，分类条滚到视口顶部后由下面的浮层副本接管（吸顶）。
+        -->
+        <ScrollViewer x:Name="PageScroll"
+                      VerticalScrollMode="Enabled"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollMode="Disabled"
+                      HorizontalScrollBarVisibility="Disabled"
+                      ViewChanged="PageScroll_ViewChanged">
 
-            <StackPanel Orientation="Horizontal" Spacing="10">
-                <controls:AutoSuggestBox x:Name="SearchBox"
-                                         PlaceholderText="搜索片名、演员（回车搜索）"
-                                         Width="320"
-                                         QuerySubmitted="SearchBox_QuerySubmitted" />
+            <StackPanel x:Name="ScrollContent" Padding="32,24,32,32">
 
-                <ToggleButton x:Name="AggregateToggle"
-                              Content="聚合搜索"
-                              MinWidth="88"
-                              Click="AggregateToggle_Click">
-                    <ToolTipService.ToolTip>
-                        <ToolTip Content="同时搜索多个视频源，合并结果" />
-                    </ToolTipService.ToolTip>
-                </ToggleButton>
-
-                <Button x:Name="AggregateSourceButton"
-                        Content="选择源"
-                        MinWidth="76"
-                        Visibility="Collapsed"
-                        Click="AggregateSourceButton_Click" />
-
-                <ToggleButton x:Name="GridToggle"
-                              Content="瀑布流"
-                              IsChecked="True"
-                              MinWidth="76"
-                              Click="ViewToggle_Click" />
-                <ToggleButton x:Name="ListToggle"
-                              Content="列表"
-                              MinWidth="72"
-                              Click="ViewToggle_Click" />
-
-                <TextBlock x:Name="CountText"
-                           VerticalAlignment="Center"
-                           Margin="6,0,0,0"
-                           FontSize="12"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-            </StackPanel>
-
-            <!-- 聚合搜索的源选择条 -->
-            <StackPanel x:Name="AggregateSourceBar"
-                        Orientation="Horizontal"
-                        Spacing="8"
-                        Visibility="Collapsed">
-                <TextBlock Text="参与搜索的源："
-                           FontSize="12"
-                           VerticalAlignment="Center"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                <StackPanel x:Name="AggregateSourceChips" Orientation="Horizontal" Spacing="8" />
-                <Button Content="全选"
-                        FontSize="12"
-                        Click="SelectAllSources_Click" />
-                <Button Content="仅当前源"
-                        FontSize="12"
-                        Click="SelectCurrentSource_Click" />
-            </StackPanel>
-
-            <!-- 继续观看：有历史时出现，点一下直接续播 -->
-            <StackPanel x:Name="ContinueSection"
-                        Spacing="8"
-                        Visibility="Collapsed">
-                <StackPanel Orientation="Horizontal" Spacing="10">
-                    <TextBlock Text="继续观看"
-                               FontSize="15"
+                <!-- ============ 顶部：标题 / 搜索 / 视图切换 ============ -->
+                <StackPanel Spacing="14" Margin="0,0,0,16">
+                    <TextBlock Text="首页"
+                               FontSize="30"
                                FontWeight="SemiBold"
                                Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                    <TextBlock x:Name="ContinueHint"
-                               FontSize="12"
+
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <controls:AutoSuggestBox x:Name="SearchBox"
+                                                 PlaceholderText="搜索片名、演员（回车搜索）"
+                                                 Width="320"
+                                                 QuerySubmitted="SearchBox_QuerySubmitted" />
+
+                        <ToggleButton x:Name="AggregateToggle"
+                                      Content="聚合搜索"
+                                      MinWidth="88"
+                                      Click="AggregateToggle_Click">
+                            <ToolTipService.ToolTip>
+                                <ToolTip Content="同时搜索多个视频源，合并结果" />
+                            </ToolTipService.ToolTip>
+                        </ToggleButton>
+
+                        <Button x:Name="AggregateSourceButton"
+                                Content="选择源"
+                                MinWidth="76"
+                                Visibility="Collapsed"
+                                Click="AggregateSourceButton_Click" />
+
+                        <ToggleButton x:Name="GridToggle"
+                                      Content="瀑布流"
+                                      IsChecked="True"
+                                      MinWidth="76"
+                                      Click="ViewToggle_Click" />
+                        <ToggleButton x:Name="ListToggle"
+                                      Content="列表"
+                                      MinWidth="72"
+                                      Click="ViewToggle_Click" />
+
+                        <TextBlock x:Name="CountText"
+                                   VerticalAlignment="Center"
+                                   Margin="6,0,0,0"
+                                   FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+
+                    <!-- 聚合搜索的源选择条 -->
+                    <StackPanel x:Name="AggregateSourceBar"
+                                Orientation="Horizontal"
+                                Spacing="8"
+                                Visibility="Collapsed">
+                        <TextBlock Text="参与搜索的源："
+                                   FontSize="12"
+                                   VerticalAlignment="Center"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <StackPanel x:Name="AggregateSourceChips" Orientation="Horizontal" Spacing="8" />
+                        <Button Content="全选"
+                                FontSize="12"
+                                Click="SelectAllSources_Click" />
+                        <Button Content="仅当前源"
+                                FontSize="12"
+                                Click="SelectCurrentSource_Click" />
+                    </StackPanel>
+
+                    <!-- 继续观看：有历史时出现，点一下直接续播 -->
+                    <StackPanel x:Name="ContinueSection"
+                                Spacing="8"
+                                Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="继续观看"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"
+                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                            <TextBlock x:Name="ContinueHint"
+                                       FontSize="12"
+                                       VerticalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                        </StackPanel>
+
+                        <ScrollViewer HorizontalScrollMode="Enabled"
+                                      HorizontalScrollBarVisibility="Hidden"
+                                      VerticalScrollMode="Disabled"
+                                      VerticalScrollBarVisibility="Disabled">
+                            <StackPanel x:Name="ContinueList"
+                                        Orientation="Horizontal"
+                                        Spacing="12" />
+                        </ScrollViewer>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- ============ 分类胶囊（原位，滚到顶后由吸顶副本接管） ============ -->
+                <ScrollViewer x:Name="CategoryStrip"
+                              HorizontalScrollMode="Enabled"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollMode="Disabled"
+                              VerticalScrollBarVisibility="Disabled"
+                              Margin="0,0,0,16"
+                              ViewChanged="CategoryScroll_ViewChanged">
+                    <StackPanel x:Name="CategoryBar" Orientation="Horizontal" Spacing="8" />
+                </ScrollViewer>
+
+                <!-- ============ 筛选条：地区 / 年份 / 排序 ============ -->
+                <StackPanel x:Name="FilterBar"
+                            Orientation="Horizontal"
+                            Spacing="8"
+                            Margin="0,0,0,14">
+                    <ComboBox x:Name="AreaBox"
+                              MinWidth="112"
+                              FontSize="12"
+                              PlaceholderText="地区"
+                              SelectionChanged="Filter_SelectionChanged" />
+                    <ComboBox x:Name="YearBox"
+                              MinWidth="104"
+                              FontSize="12"
+                              PlaceholderText="年份"
+                              SelectionChanged="Filter_SelectionChanged" />
+                    <ComboBox x:Name="SortBox"
+                              MinWidth="112"
+                              FontSize="12"
+                              PlaceholderText="排序"
+                              SelectionChanged="Filter_SelectionChanged" />
+                    <Button x:Name="ClearFilterButton"
+                            Content="清除筛选"
+                            FontSize="12"
+                            Visibility="Collapsed"
+                            Click="ClearFilter_Click" />
+                    <TextBlock x:Name="FilterHint"
                                VerticalAlignment="Center"
+                               FontSize="11"
                                Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                 </StackPanel>
 
-                <ScrollViewer HorizontalScrollMode="Enabled"
-                              HorizontalScrollBarVisibility="Hidden"
-                              VerticalScrollMode="Disabled"
-                              VerticalScrollBarVisibility="Disabled">
-                    <StackPanel x:Name="ContinueList"
-                                Orientation="Horizontal"
-                                Spacing="12" />
-                </ScrollViewer>
-            </StackPanel>
-        </StackPanel>
+                <!-- ============ 内容区 ============ -->
+                <Grid x:Name="ContentHost" MinHeight="320">
 
-        <!-- ============ 分类胶囊 ============ -->
-        <ScrollViewer Grid.Row="1"
-                      HorizontalScrollMode="Enabled"
-                      HorizontalScrollBarVisibility="Auto"
-                      VerticalScrollMode="Disabled"
-                      VerticalScrollBarVisibility="Disabled"
-                      Margin="0,0,0,16">
-            <StackPanel x:Name="CategoryBar" Orientation="Horizontal" Spacing="8" />
-        </ScrollViewer>
+                    <!-- 瀑布流视图 -->
+                    <ItemsRepeater x:Name="WaterfallRepeater" VerticalAlignment="Top">
+                        <ItemsRepeater.Layout>
+                            <cm:MasonryLayout MinColumnWidth="172"
+                                              ColumnSpacing="14"
+                                              RowSpacing="14" />
+                        </ItemsRepeater.Layout>
 
-        <!-- ============ 筛选条：地区 / 年份 / 排序 ============ -->
-        <StackPanel x:Name="FilterBar"
-                    Grid.Row="2"
-                    Orientation="Horizontal"
-                    Spacing="8"
-                    Margin="0,0,0,14">
-            <ComboBox x:Name="AreaBox"
-                      MinWidth="112"
-                      FontSize="12"
-                      PlaceholderText="地区"
-                      SelectionChanged="Filter_SelectionChanged" />
-            <ComboBox x:Name="YearBox"
-                      MinWidth="104"
-                      FontSize="12"
-                      PlaceholderText="年份"
-                      SelectionChanged="Filter_SelectionChanged" />
-            <ComboBox x:Name="SortBox"
-                      MinWidth="112"
-                      FontSize="12"
-                      PlaceholderText="排序"
-                      SelectionChanged="Filter_SelectionChanged" />
-            <Button x:Name="ClearFilterButton"
-                    Content="清除筛选"
-                    FontSize="12"
-                    Visibility="Collapsed"
-                    Click="ClearFilter_Click" />
-            <TextBlock x:Name="FilterHint"
-                       VerticalAlignment="Center"
-                       FontSize="11"
-                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-        </StackPanel>
+                        <ItemsRepeater.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Tapped="Card_Tapped">
+                                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="10">
+                                        <StackPanel>
+                                            <!-- 海报：高度由卡片的数据决定（图片解码后按真实比例校准） -->
+                                            <Grid Height="{Binding PosterHeight}"
+                                                  Background="{ThemeResource ControlFillColorDefaultBrush}">
+                                                <cm:QueuedImage SourceUrl="{Binding PicUrl}" DecodeWidth="360" />
 
-        <!-- ============ 内容区 ============ -->
-        <Grid Grid.Row="3">
+                                                <!-- 更新状态角标 -->
+                                                <Border VerticalAlignment="Bottom"
+                                                        HorizontalAlignment="Left"
+                                                        Margin="8"
+                                                        Padding="6,2"
+                                                        CornerRadius="4"
+                                                        Background="#B3000000">
+                                                    <TextBlock Text="{Binding RemarksText}"
+                                                               FontSize="10"
+                                                               Foreground="White"
+                                                               MaxLines="1" />
+                                                </Border>
 
-            <!-- 瀑布流视图 -->
-            <ScrollViewer x:Name="WaterfallScroll"
-                          VerticalScrollMode="Enabled"
-                          VerticalScrollBarVisibility="Auto"
-                          HorizontalScrollMode="Disabled"
-                          HorizontalScrollBarVisibility="Disabled"
-                          ViewChanged="WaterfallScroll_ViewChanged">
-                <ItemsRepeater x:Name="WaterfallRepeater">
-                    <ItemsRepeater.Layout>
-                        <cm:MasonryLayout MinColumnWidth="172"
-                                          ColumnSpacing="14"
-                                          RowSpacing="14" />
-                    </ItemsRepeater.Layout>
+                                                <!-- 来源标注（仅聚合搜索结果显示） -->
+                                                <Border VerticalAlignment="Top"
+                                                        HorizontalAlignment="Right"
+                                                        Margin="8"
+                                                        Padding="6,2"
+                                                        CornerRadius="4"
+                                                        Background="#CC1B5E20"
+                                                        ToolTipService.ToolTip="{Binding SourceDetail}"
+                                                        Visibility="{Binding HasSource}">
+                                                    <TextBlock Text="{Binding SourceLabel}"
+                                                               FontSize="10"
+                                                               Foreground="White"
+                                                               MaxLines="1"
+                                                               MaxWidth="118"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               TextWrapping="NoWrap" />
+                                                </Border>
+                                            </Grid>
 
-                    <ItemsRepeater.ItemTemplate>
-                        <DataTemplate>
-                            <Grid Tapped="Card_Tapped">
-                                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                        BorderThickness="1"
-                                        CornerRadius="10">
-                                    <StackPanel>
-                                        <!-- 海报：高度由卡片的数据决定（图片解码后按真实比例校准） -->
-                                        <Grid Height="{Binding PosterHeight}"
-                                              Background="{ThemeResource ControlFillColorDefaultBrush}">
-                                            <cm:QueuedImage SourceUrl="{Binding PicUrl}" DecodeWidth="360" />
-
-                                            <!-- 更新状态角标 -->
-                                            <Border VerticalAlignment="Bottom"
-                                                    HorizontalAlignment="Left"
-                                                    Margin="8"
-                                                    Padding="6,2"
-                                                    CornerRadius="4"
-                                                    Background="#B3000000">
-                                                <TextBlock Text="{Binding RemarksText}"
-                                                           FontSize="10"
-                                                           Foreground="White"
-                                                           MaxLines="1" />
-                                            </Border>
-
-                                            <!-- 来源标注（仅聚合搜索结果显示） -->
-                                            <Border VerticalAlignment="Top"
-                                                    HorizontalAlignment="Right"
-                                                    Margin="8"
-                                                    Padding="6,2"
-                                                    CornerRadius="4"
-                                                    Background="#CC1B5E20"
-                                                    ToolTipService.ToolTip="{Binding SourceDetail}"
-                                                    Visibility="{Binding HasSource}">
-                                                <TextBlock Text="{Binding SourceLabel}"
-                                                           FontSize="10"
-                                                           Foreground="White"
+                                            <StackPanel Padding="10,8,10,11" Spacing="3">
+                                                <TextBlock Text="{Binding Name}"
+                                                           FontSize="14"
+                                                           FontWeight="SemiBold"
                                                            MaxLines="1"
-                                                           MaxWidth="118"
                                                            TextTrimming="CharacterEllipsis"
-                                                           TextWrapping="NoWrap" />
-                                            </Border>
-                                        </Grid>
-
-                                        <StackPanel Padding="10,8,10,11" Spacing="3">
-                                            <TextBlock Text="{Binding Name}"
-                                                       FontSize="14"
-                                                       FontWeight="SemiBold"
-                                                       MaxLines="1"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                                            <TextBlock Text="{Binding MetaLine}"
-                                                       FontSize="11"
-                                                       MaxLines="1"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                                                <TextBlock Text="{Binding MetaLine}"
+                                                           FontSize="11"
+                                                           MaxLines="1"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            </StackPanel>
                                         </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsRepeater.ItemTemplate>
+                    </ItemsRepeater>
+
+                    <!-- 列表视图（自身不滚动，交给整页的 PageScroll） -->
+                    <ListView x:Name="ListRows"
+                              Visibility="Collapsed"
+                              VerticalAlignment="Top"
+                              SelectionMode="None"
+                              IsItemClickEnabled="True"
+                              ItemClick="List_ItemClick"
+                              ScrollViewer.VerticalScrollMode="Disabled"
+                              ScrollViewer.VerticalScrollBarVisibility="Hidden">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,0,0,6" Padding="6" ColumnSpacing="14">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <Border Grid.Column="0"
+                                            Width="112"
+                                            Height="63"
+                                            CornerRadius="6"
+                                            Background="{ThemeResource ControlFillColorDefaultBrush}">
+                                        <cm:QueuedImage SourceUrl="{Binding PicUrl}" DecodeWidth="240" />
+                                    </Border>
+
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                        <TextBlock Text="{Binding Name}"
+                                                   FontSize="15"
+                                                   FontWeight="SemiBold"
+                                                   MaxLines="1"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                                        <TextBlock Text="{Binding MetaLine}"
+                                                   FontSize="12"
+                                                   MaxLines="1"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock Text="{Binding SourceLabel}"
+                                                   FontSize="11"
+                                                   MaxLines="1"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTipService.ToolTip="{Binding SourceDetail}"
+                                                   Visibility="{Binding HasSource}"
+                                                   Foreground="#FF2E7D32" />
                                     </StackPanel>
-                                </Border>
-                            </Grid>
-                        </DataTemplate>
-                    </ItemsRepeater.ItemTemplate>
-                </ItemsRepeater>
-            </ScrollViewer>
 
-            <!-- 列表视图 -->
-            <ListView x:Name="ListRows"
-                      Visibility="Collapsed"
-                      SelectionMode="None"
-                      IsItemClickEnabled="True"
-                      ItemClick="List_ItemClick">
-                <ListView.ItemTemplate>
-                    <DataTemplate>
-                        <Grid Margin="0,0,0,6" Padding="6" ColumnSpacing="14">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="2"
+                                               Text="{Binding RemarksText}"
+                                               FontSize="12"
+                                               VerticalAlignment="Center"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
 
-                            <Border Grid.Column="0"
-                                    Width="112"
-                                    Height="63"
-                                    CornerRadius="6"
-                                    Background="{ThemeResource ControlFillColorDefaultBrush}">
-                                <cm:QueuedImage SourceUrl="{Binding PicUrl}" DecodeWidth="240" />
-                            </Border>
-
-                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
-                                <TextBlock Text="{Binding Name}"
-                                           FontSize="15"
-                                           FontWeight="SemiBold"
-                                           MaxLines="1"
-                                           TextTrimming="CharacterEllipsis"
-                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                                <TextBlock Text="{Binding MetaLine}"
-                                           FontSize="12"
-                                           MaxLines="1"
-                                           TextTrimming="CharacterEllipsis"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                <TextBlock Text="{Binding SourceLabel}"
-                                           FontSize="11"
-                                           MaxLines="1"
-                                           TextTrimming="CharacterEllipsis"
-                                           ToolTipService.ToolTip="{Binding SourceDetail}"
-                                           Visibility="{Binding HasSource}"
-                                           Foreground="#FF2E7D32" />
-                            </StackPanel>
-
-                            <TextBlock Grid.Column="2"
-                                       Text="{Binding RemarksText}"
-                                       FontSize="12"
-                                       VerticalAlignment="Center"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        </Grid>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
-
-            <!-- 无源引导：本项目不内置任何接口地址，首次启动就是这个状态 -->
-            <Border x:Name="NoSourcePanel"
-                    Visibility="Collapsed"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    MaxWidth="520"
-                    Padding="32,28"
-                    CornerRadius="12"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1">
-                <StackPanel Spacing="14" HorizontalAlignment="Center">
-                    <FontIcon Glyph="&#xE774;"
-                              FontSize="34"
-                              HorizontalAlignment="Center"
-                              Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    <TextBlock Text="还没有视频源"
-                               FontSize="19"
-                               FontWeight="SemiBold"
-                               HorizontalAlignment="Center"
-                               Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                    <TextBlock Text="本应用不内置任何接口地址。请先在「源管理」里添加一个苹果CMS（MacCMS V10）JSON 接口，例如 https://你的域名/api.php/provide/vod"
-                               FontSize="12.5"
-                               TextWrapping="Wrap"
-                               TextAlignment="Center"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    <Button Content="去添加视频源"
-                            Style="{StaticResource AccentButtonStyle}"
+                    <!-- 无源引导：本项目不内置任何接口地址，首次启动就是这个状态 -->
+                    <Border x:Name="NoSourcePanel"
+                            Visibility="Collapsed"
                             HorizontalAlignment="Center"
-                            Click="GoSource_Click" />
-                </StackPanel>
-            </Border>
+                            VerticalAlignment="Center"
+                            MaxWidth="520"
+                            Padding="32,28"
+                            CornerRadius="12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1">
+                        <StackPanel Spacing="14" HorizontalAlignment="Center">
+                            <FontIcon Glyph="&#xE774;"
+                                      FontSize="34"
+                                      HorizontalAlignment="Center"
+                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Text="还没有视频源"
+                                       FontSize="19"
+                                       FontWeight="SemiBold"
+                                       HorizontalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                            <TextBlock Text="本应用不内置任何接口地址。请先在「源管理」里添加一个苹果CMS（MacCMS V10）JSON 接口，例如 https://你的域名/api.php/provide/vod"
+                                       FontSize="12.5"
+                                       TextWrapping="Wrap"
+                                       TextAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <Button Content="去添加视频源"
+                                    Style="{StaticResource AccentButtonStyle}"
+                                    HorizontalAlignment="Center"
+                                    Click="GoSource_Click" />
+                        </StackPanel>
+                    </Border>
 
-            <!-- 空状态 -->
-            <StackPanel x:Name="EmptyHint"
-                        Visibility="Collapsed"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        Spacing="10">
-                <FontIcon Glyph="&#xE721;"
-                          FontSize="34"
-                          Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                <TextBlock Text="没有找到相关内容"
-                           FontSize="14"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-            </StackPanel>
-
-            <!-- 错误面板 -->
-            <Border x:Name="ErrorPanel"
-                    Visibility="Collapsed"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    MaxWidth="560"
-                    Padding="24"
-                    CornerRadius="10"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1">
-                <StackPanel Spacing="12">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon Glyph="&#xE783;"
-                                  FontSize="18"
-                                  Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                        <TextBlock Text="加载失败"
-                                   FontSize="16"
-                                   FontWeight="SemiBold"
-                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                    <!-- 空状态 -->
+                    <StackPanel x:Name="EmptyHint"
+                                Visibility="Collapsed"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Spacing="10">
+                        <FontIcon Glyph="&#xE721;"
+                                  FontSize="34"
+                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Text="没有找到相关内容"
+                                   FontSize="14"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                     </StackPanel>
-                    <TextBlock x:Name="ErrorText"
+
+                    <!-- 错误面板 -->
+                    <Border x:Name="ErrorPanel"
+                            Visibility="Collapsed"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            MaxWidth="560"
+                            Padding="24"
+                            CornerRadius="10"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1">
+                        <StackPanel Spacing="12">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE783;"
+                                          FontSize="18"
+                                          Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                                <TextBlock Text="加载失败"
+                                           FontSize="16"
+                                           FontWeight="SemiBold"
+                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                            </StackPanel>
+                            <TextBlock x:Name="ErrorText"
+                                       FontSize="12"
+                                       TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <Button Content="重试"
+                                    Style="{StaticResource AccentButtonStyle}"
+                                    Click="Retry_Click" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 加载中 -->
+                    <controls:ProgressRing x:Name="LoadingRing"
+                                           IsActive="False"
+                                           Width="36"
+                                           Height="36"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                </Grid>
+
+                <!-- ============ 底部：状态 + 加载更多 ============ -->
+                <Grid Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock x:Name="QueueText"
+                               Grid.Row="0"
+                               Grid.Column="0"
+                               VerticalAlignment="Center"
+                               FontSize="11"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+
+                    <TextBlock x:Name="HintText"
+                               Grid.Row="1"
+                               Grid.Column="0"
+                               Margin="0,4,0,0"
+                               VerticalAlignment="Center"
                                FontSize="12"
                                TextWrapping="Wrap"
+                               Visibility="Collapsed"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    <Button Content="重试"
-                            Style="{StaticResource AccentButtonStyle}"
-                            Click="Retry_Click" />
-                </StackPanel>
-            </Border>
 
-            <!-- 加载中 -->
-            <controls:ProgressRing x:Name="LoadingRing"
-                                   IsActive="False"
-                                   Width="36"
-                                   Height="36"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center" />
-        </Grid>
+                    <Button x:Name="LoadMoreButton"
+                            Grid.RowSpan="2"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Content="加载更多"
+                            MinWidth="140"
+                            Click="LoadMore_Click" />
+                </Grid>
+            </StackPanel>
+        </ScrollViewer>
 
-        <!-- ============ 底部：状态 + 加载更多 ============ -->
-        <Grid Grid.Row="4" Margin="0,8,0,16">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
-
-            <TextBlock x:Name="QueueText"
-                       Grid.Row="0"
-                       Grid.Column="0"
-                       VerticalAlignment="Center"
-                       FontSize="11"
-                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-
-            <TextBlock x:Name="HintText"
-                       Grid.Row="1"
-                       Grid.Column="0"
-                       Margin="0,4,0,0"
-                       VerticalAlignment="Center"
-                       FontSize="12"
-                       TextWrapping="Wrap"
-                       Visibility="Collapsed"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-
-            <Button x:Name="LoadMoreButton"
-                    Grid.RowSpan="2"
-                    Grid.Column="1"
-                    VerticalAlignment="Center"
-                    Content="加载更多"
-                    MinWidth="140"
-                    Click="LoadMore_Click" />
-        </Grid>
+        <!--
+            吸顶分类条：与原位那一行像素级对齐（下 padding 为 0，胶囊顶部贴住视口顶边），
+            所以切换的瞬间看不出跳变。只在原位滚出视口后才显示。
+        -->
+        <Border x:Name="StickyCategoryHost"
+                VerticalAlignment="Top"
+                Visibility="Collapsed"
+                Padding="32,0,32,8"
+                Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="0,0,0,1">
+            <ScrollViewer x:Name="StickyCategoryStrip"
+                          HorizontalScrollMode="Enabled"
+                          HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollMode="Disabled"
+                          VerticalScrollBarVisibility="Disabled"
+                          ViewChanged="CategoryScroll_ViewChanged">
+                <StackPanel x:Name="StickyCategoryBar" Orientation="Horizontal" Spacing="8" />
+            </ScrollViewer>
+        </Border>
     </Grid>
 </Page>

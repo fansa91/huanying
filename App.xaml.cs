@@ -338,6 +338,40 @@ public partial class App : Application
                     Log($"NAV FILTER CLEAR: {await filterHost.DebugClearFilterAsync()}");
                 }
 
+                // 分类吸顶自检：HY_STICKY=像素[,像素…] 依次滚到这些偏移，核对吸顶条是否接管
+                if (Environment.GetEnvironmentVariable("HY_STICKY") is { Length: > 0 } stickySpec
+                    && shell.CurrentContent is Views.HomePage stickyHost)
+                {
+                    var stickyOffsets = stickySpec.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+                    for (var i = 0; i < stickyOffsets.Length; i++)
+                    {
+                        if (!double.TryParse(stickyOffsets[i], out var stickyOffset)) continue;
+
+                        Log($"NAV STICKY AT {stickyOffset:0}: {await stickyHost.DebugScrollToAsync(stickyOffset)}");
+                        await System.Threading.Tasks.Task.Delay(700);
+                        await ShotAsync(i == 0 ? "home-sticky" : $"home-sticky-{i}");
+                    }
+                }
+
+                // 吸顶条上换分类：HY_STICKYCLICK=胶囊索引（配合 HY_STICKY 先滚下去）
+                if (Environment.GetEnvironmentVariable("HY_STICKYCLICK") is { Length: > 0 } stickyClickSpec
+                    && shell.CurrentContent is Views.HomePage stickyClickHost
+                    && int.TryParse(stickyClickSpec, out var stickyClickIndex))
+                {
+                    Log($"NAV STICKY CLICK: {await stickyClickHost.DebugClickStickyCategoryAsync(stickyClickIndex)}");
+                    await ShotAsync("home-sticky-click");
+                }
+
+                // 列表视图：HY_LIST=1 / 0
+                if (Environment.GetEnvironmentVariable("HY_LIST") is { Length: > 0 } listSpec
+                    && shell.CurrentContent is Views.HomePage listHost)
+                {
+                    Log($"NAV LIST {listSpec}: {listHost.DebugSwitchView(listSpec == "1")}");
+                    await System.Threading.Tasks.Task.Delay(1500);
+                    await ShotAsync("home-list");
+                }
+
                 // 详情页相似推荐自检：HY_DETAILSCROLL=1 滚到区块并截图
                 if (Environment.GetEnvironmentVariable("HY_DETAILSCROLL") == "1"
                     && shell.CurrentContent is Views.ShowDetailPage detailPage)

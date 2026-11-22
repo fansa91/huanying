@@ -87,7 +87,15 @@ public sealed partial class HomePage : Page
         WaterfallRepeater.ItemsSource = _cards;
         ListRows.ItemsSource = _cards;
 
-        WaterfallScroll.SizeChanged += (_, _) => UpdateColumnMetrics();
+        // 列宽跟着内容宿主走（整页滚动后没有独立的瀑布流 ScrollViewer 了）
+        ContentHost.SizeChanged += (_, _) =>
+        {
+            UpdateColumnMetrics();
+            UpdateCategoryAnchor();
+        };
+
+        // 继续观看整行出现 / 消失、聚合源条展开，都会改变分类条在内容里的纵向位置
+        ScrollContent.SizeChanged += (_, _) => UpdateCategoryAnchor();
 
         ImageQueue.Current.StatsChanged += (_, _) => UpdateQueueText();
 
@@ -141,6 +149,9 @@ public sealed partial class HomePage : Page
         _pageCount = 1;
 
         CategoryBar.Children.Clear();
+        StickyCategoryBar.Children.Clear();
+        CategoryStrip.Visibility = Visibility.Collapsed;
+        StickyCategoryHost.Visibility = Visibility.Collapsed;
         NoSourcePanel.Visibility = Visibility.Visible;
         EmptyHint.Visibility = Visibility.Collapsed;
         ErrorPanel.Visibility = Visibility.Collapsed;
@@ -169,13 +180,28 @@ public sealed partial class HomePage : Page
         }
 
         CategoryBar.Children.Clear();
-        CategoryBar.Children.Add(CreatePill("全部", null));
+        StickyCategoryBar.Children.Clear();
+
+        AddCategoryPill("全部", null);
         foreach (var category in categories)
         {
             // 只放一级分类，避免胶囊过长
             if (category.TypePid != 0) continue;
-            CategoryBar.Children.Add(CreatePill(category.TypeName, category.TypeId));
+            AddCategoryPill(category.TypeName, category.TypeId);
         }
+
+        CategoryStrip.Visibility = Visibility.Visible;
+        UpdateCategoryAnchor();
+    }
+
+    /// <summary>
+    /// 每个分类在两处各放一个胶囊：「原位」一行随页面滚走，吸顶条再放一份。
+    /// 两处 Tag 相同，点击与选中状态靠 <see cref="SyncPillSelection"/> 对齐。
+    /// </summary>
+    private void AddCategoryPill(string text, int? typeId)
+    {
+        CategoryBar.Children.Add(CreatePill(text, typeId));
+        StickyCategoryBar.Children.Add(CreatePill(text, typeId));
     }
 
     private ToggleButton CreatePill(string text, int? typeId)
@@ -191,18 +217,32 @@ public sealed partial class HomePage : Page
         return pill;
     }
 
+    /// <summary>把选中态同步到两份胶囊（Tag 相同即同一个分类）</summary>
+    private void SyncPillSelection(int? typeId)
+    {
+        foreach (var panel in new[] { CategoryBar, StickyCategoryBar })
+        {
+            foreach (var child in panel.Children)
+            {
+                if (child is ToggleButton pill) pill.IsChecked = (pill.Tag as int?) == typeId;
+            }
+        }
+    }
+
     private async void CategoryPill_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not ToggleButton clicked) return;
+        await SelectCategoryAsync(clicked.Tag as int?);
+    }
 
-        // 单选行为：其余胶囊取消选中
-        foreach (var child in CategoryBar.Children)
-        {
-            if (child is ToggleButton pill && !ReferenceEquals(pill, clicked)) pill.IsChecked = false;
-        }
-        clicked.IsChecked = true;
+    /// <summary>选中某个分类并重新拉列表（原位与吸顶副本各一份胶囊，靠 Tag 判定）</summary>
+    private async Task SelectCategoryAsync(int? typeId)
+    {
+        _typeId = typeId;
 
-        _typeId = clicked.Tag as int?;
+        // 原位与吸顶副本同时高亮，避免滚回去时看到两个不同的选中项
+        SyncPillSelection(typeId);
+
         _keyword = string.Empty;
         SearchBox.Text = string.Empty;
 
@@ -670,13 +710,17 @@ public sealed partial class HomePage : Page
 
         if (reset)
         {
+            // 记下换内容之前是不是吸顶状态，加载完成后把滚动位置摆回去
+            _pinCategoryAfterReset = IsCategoryPinned();
+
             _page = 0;
             _pageCount = 1;
             _total = 0;
             _seenIds.Clear();
-            _cards.Clear();
             EmptyHint.Visibility = Visibility.Collapsed;
-            WaterfallScroll.ChangeView(null, 0, null, disableAnimation: true);
+
+            // 注意：这里刻意不清空 _cards。等新数据到手再整体替换，
+            // 否则内容瞬间变矮，ScrollViewer 会把滚动位置钳到 0（吸顶状态就丢了）。
         }
 
         SetLoadingState(true);
@@ -699,6 +743,9 @@ public sealed partial class HomePage : Page
             // 新数据先套用当前列宽，保证首帧高度就对
             UpdateColumnMetrics();
 
+            // 新旧卡片在同一个同步块里换掉，中间不插布局，滚动位置不会被钳
+            if (reset) _cards.Clear();
+
             foreach (var item in response.List)
             {
                 if (item.Id <= 0 || !_seenIds.Add(item.Id)) continue;
@@ -718,6 +765,8 @@ public sealed partial class HomePage : Page
             _loading = false;
             SetLoadingState(false);
             UpdateState();
+
+            if (reset) RestoreScrollAfterReset();
         }
     }
 
@@ -764,7 +813,9 @@ public sealed partial class HomePage : Page
     /// <summary>可用宽度 → 列数 / 列宽，并把列宽推给每张卡片（海报高度 = 比例 × 列宽）</summary>
     private void UpdateColumnMetrics()
     {
-        var available = WaterfallScroll.ViewportWidth;
+        // 内容宿主宽度就是瀑布流可用宽度（整页滚动后，左右 32 的留白在 ScrollContent 上）
+        var available = ContentHost.ActualWidth;
+        if (available <= 0) available = PageScroll.ViewportWidth - 64;
         if (available <= 0 && ActualWidth > 0) available = ActualWidth - 64;
         if (available <= 0) return;
 
@@ -796,14 +847,105 @@ public sealed partial class HomePage : Page
 
     private async void LoadMore_Click(object sender, RoutedEventArgs e) => await LoadAsync(reset: false);
 
-    private void WaterfallScroll_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
+    private void PageScroll_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
     {
+        // 分类条滚出视口顶部后由吸顶副本接管
+        UpdateStickyCategory();
+
         // 滚到接近底部自动补下一页，瀑布流不需要手动点
         if (_loading || _page >= _pageCount || _cards.Count == 0) return;
         if (ListRows.Visibility == Visibility.Visible) return;
 
-        var remaining = WaterfallScroll.ScrollableHeight - WaterfallScroll.VerticalOffset;
+        var remaining = PageScroll.ScrollableHeight - PageScroll.VerticalOffset;
         if (remaining < 720) _ = LoadAsync(reset: false);
+    }
+
+    /* ================= 分类吸顶 ================= */
+
+    /// <summary>分类条（原位）顶部在滚动内容里的纵坐标；NaN 表示还没测量出来</summary>
+    private double _categoryAnchor = double.NaN;
+
+    /// <summary>两份分类条的横向滚动正在同步，避免 ViewChanged 互相触发</summary>
+    private bool _syncingCategoryScroll;
+
+    /// <summary>本次重置列表前是吸顶状态，重置后要把分类条钉回顶部</summary>
+    private bool _pinCategoryAfterReset;
+
+    /// <summary>重新测量原位分类条在内容里的位置（头部高度变化后要刷新）</summary>
+    private void UpdateCategoryAnchor()
+    {
+        if (CategoryStrip.ActualHeight <= 0) return;
+
+        try
+        {
+            _categoryAnchor = CategoryStrip.TransformToVisual(ScrollContent)
+                .TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+        }
+        catch
+        {
+            // 还没进可视树，等下次布局完再量
+            _categoryAnchor = double.NaN;
+        }
+
+        UpdateStickyCategory();
+    }
+
+    /// <summary>滚动位置越过原位分类条时显示吸顶副本，滚回上方则收起</summary>
+    private void UpdateStickyCategory()
+    {
+        if (double.IsNaN(_categoryAnchor) || CategoryStrip.Visibility != Visibility.Visible)
+        {
+            StickyCategoryHost.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        // 阈值正好取原位分类条的顶部：切换的一瞬间两者位置重合，看不出跳变
+        var show = PageScroll.VerticalOffset >= _categoryAnchor - 0.5;
+        StickyCategoryHost.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>两份分类条的横向滚动位置保持同步（一份是原位，一份在吸顶条里）</summary>
+    private void CategoryScroll_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
+    {
+        if (_syncingCategoryScroll || sender is not ScrollViewer source) return;
+
+        var target = ReferenceEquals(source, CategoryStrip) ? StickyCategoryStrip : CategoryStrip;
+        if (Math.Abs(target.HorizontalOffset - source.HorizontalOffset) < 0.5) return;
+
+        _syncingCategoryScroll = true;
+        try
+        {
+            target.ChangeView(source.HorizontalOffset, null, null, disableAnimation: true);
+        }
+        finally
+        {
+            _syncingCategoryScroll = false;
+        }
+    }
+
+    /// <summary>当前是否已经是「分类贴顶」状态（头部已滚走）</summary>
+    private bool IsCategoryPinned() =>
+        !double.IsNaN(_categoryAnchor) && PageScroll.VerticalOffset >= _categoryAnchor - 0.5;
+
+    /// <summary>
+    /// 列表重置后的滚动位置：原来就吸顶的，停在「分类贴顶」处，不把整块头部拽回来；
+    /// 其余情况回到真正的顶部。
+    /// </summary>
+    private void RestoreScrollAfterReset()
+    {
+        var target = 0.0;
+
+        if (_pinCategoryAfterReset && !double.IsNaN(_categoryAnchor)
+            && PageScroll.ScrollableHeight >= _categoryAnchor)
+        {
+            target = _categoryAnchor;
+        }
+
+        PageScroll.ChangeView(null, target, null, disableAnimation: true);
+        UpdateStickyCategory();
+
+        App.Log($"HOME restore scroll: pin={_pinCategoryAfterReset} anchor={_categoryAnchor:0} " +
+                $"scrollable={PageScroll.ScrollableHeight:0} offset={PageScroll.VerticalOffset:0} target={target:0}");
     }
 
     private void ViewToggle_Click(object sender, RoutedEventArgs e)
@@ -813,7 +955,7 @@ public sealed partial class HomePage : Page
         GridToggle.IsChecked = showWaterfall;
         ListToggle.IsChecked = !showWaterfall;
 
-        WaterfallScroll.Visibility = showWaterfall ? Visibility.Visible : Visibility.Collapsed;
+        WaterfallRepeater.Visibility = showWaterfall ? Visibility.Visible : Visibility.Collapsed;
         ListRows.Visibility = showWaterfall ? Visibility.Collapsed : Visibility.Visible;
 
         if (showWaterfall) UpdateColumnMetrics();
@@ -899,11 +1041,8 @@ public sealed partial class HomePage : Page
         _typeId = null;
         SearchBox.Text = keyword;
 
-        // 分类胶囊回到「全部」
-        foreach (var child in CategoryBar.Children)
-        {
-            if (child is ToggleButton pill) pill.IsChecked = pill.Tag is null;
-        }
+        // 分类胶囊回到「全部」（原位与吸顶副本一起）
+        SyncPillSelection(null);
 
         _suppressFilter = true;
         AreaBox.SelectedIndex = 0;
@@ -989,6 +1128,34 @@ public sealed partial class HomePage : Page
         return DebugState();
     }
 
+    /// <summary>诊断用：滚到指定纵向偏移，用于核对吸顶切换（HY_STICKY=像素）</summary>
+    internal async Task<string> DebugScrollToAsync(double offset)
+    {
+        PageScroll.ChangeView(null, offset, null, disableAnimation: true);
+        await Task.Delay(700);
+        return DebugState();
+    }
+
+    /// <summary>诊断用：点吸顶条上的第 index 个分类胶囊，验证 吸顶 → 换分类 的联动</summary>
+    internal async Task<string> DebugClickStickyCategoryAsync(int index)
+    {
+        if (index < 0 || index >= StickyCategoryBar.Children.Count) return "bad-index";
+        if (StickyCategoryBar.Children[index] is not ToggleButton pill) return "not-pill";
+
+        var label = pill.Content?.ToString() ?? "-";
+        await SelectCategoryAsync(pill.Tag as int?);
+        await Task.Delay(800);
+
+        return $"clicked='{label}' {DebugState()}";
+    }
+
+    /// <summary>诊断用：切换到列表 / 瀑布流视图（HY_LIST=1/0）</summary>
+    internal string DebugSwitchView(bool list)
+    {
+        ViewToggle_Click(list ? ListToggle : GridToggle, new RoutedEventArgs());
+        return DebugState();
+    }
+
     /// <summary>诊断用：供 HY_NAV / HY_SMOKE 读取首页状态</summary>
     internal string DebugState() =>
         $"cards={_cards.Count} cols={_columnCount} colWidth={_columnWidth:0.0} " +
@@ -999,5 +1166,7 @@ public sealed partial class HomePage : Page
         $"filter(area='{_area}' year='{_year}' by='{_sortBy}' options={AreaBox.Items.Count}/{YearBox.Items.Count}/{SortBox.Items.Count}) " +
         $"continue={ContinueList.Children.Count} " +
         $"heights=[{string.Join(",", ContinueList.Children.OfType<FrameworkElement>().Select(c => $"{c.ActualHeight:0}"))}] " +
+        $"sticky(show={StickyCategoryHost.Visibility} anchor={_categoryAnchor:0} offset={PageScroll.VerticalOffset:0} " +
+        $"pills={CategoryBar.Children.Count}/{StickyCategoryBar.Children.Count}) " +
         $"keyword='{_keyword}'";
 }
